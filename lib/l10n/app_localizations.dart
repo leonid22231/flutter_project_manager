@@ -1,0 +1,882 @@
+import 'package:flutter/material.dart';
+
+class AppLocalizations {
+  AppLocalizations(this.locale);
+
+  final Locale locale;
+
+  static const supportedLocales = [
+    Locale('en'),
+    Locale('ru'),
+  ];
+
+  static const fallbackLocale = Locale('en');
+
+  static AppLocalizations of(BuildContext context) {
+    return Localizations.of<AppLocalizations>(context, AppLocalizations)!;
+  }
+
+  static const LocalizationsDelegate<AppLocalizations> delegate =
+      _AppLocalizationsDelegate();
+
+  bool get _ru => locale.languageCode == 'ru';
+
+  String _s(String en, String ru) => _ru ? ru : en;
+
+  // General
+  String get appTitle => _s('Project Manager', 'Project Manager');
+  String get settings => _s('Settings', 'Настройки');
+  String get language => _s('Language', 'Язык');
+  String get english => _s('English', 'English');
+  String get russian => _s('Russian', 'Русский');
+  String get cancel => _s('Cancel', 'Отмена');
+  String get delete => _s('Delete', 'Удалить');
+  String get save => _s('Save', 'Сохранить');
+  String get close => _s('Close', 'Закрыть');
+  String get browse => _s('Browse', 'Обзор');
+  String get validate => _s('Validate', 'Проверить');
+  String get refresh => _s('Refresh', 'Обновить');
+  String get none => _s('None', 'Нет');
+  String get notAvailable => _s('N/A', '—');
+  String get empty => _s('empty', 'пусто');
+  String get yes => _s('Yes', 'Да');
+  String get no => _s('No', 'Нет');
+  String get markdown => _s('Markdown', 'Markdown');
+
+  // Toolbar
+  String get addProject => _s('Add Project', 'Добавить проект');
+  String get exportDocs => _s('Export Docs', 'Экспорт документации');
+  String get docsExported =>
+      _s('Documentation exported to project data folder.',
+          'Документация экспортирована в папку данных проекта.');
+
+  // Sidebar
+  String get projects => _s('Projects', 'Проекты');
+  String get projectFiles => _s('Project Files', 'Файлы проекта');
+  String get refreshFileTree =>
+      _s('Refresh file tree', 'Обновить дерево файлов');
+  String get noProjectsYet => _s('No projects yet', 'Проектов пока нет');
+  String get addProjectHint => _s(
+        'Add a Flutter/Dart project to get started.',
+        'Добавьте Flutter/Dart проект, чтобы начать.',
+      );
+  String get selectProjectForFiles => _s(
+        'Select a project to browse its files.',
+        'Выберите проект для просмотра файлов.',
+      );
+  String get noFilesFound => _s(
+        'No files found in project directory.',
+        'Файлы в каталоге проекта не найдены.',
+      );
+
+  // Workspace tabs
+  String get tabOverview => _s('Overview', 'Обзор');
+  String get tabDocumentation => _s('Documentation', 'Документация');
+  String get tabDependencies => _s('Dependencies', 'Зависимости');
+  String get tabWidgets => _s('Widgets', 'Виджеты');
+  String get tabMedia => _s('Media', 'Медиа');
+  String get tabGitlab => _s('Git / GitLab', 'Git / GitLab');
+  String get tabBuilds => _s('Builds', 'Сборки');
+  String get tabAnalysis => _s('Analysis (future)', 'Анализ (скоро)');
+
+  // Detail panel sections
+  String get sectionDetails => _s('Details', 'Детали');
+  String get sectionDocumentation => _s('Documentation', 'Документация');
+  String get sectionTasks => _s('Tasks', 'Задачи');
+
+  // Detail labels
+  String get labelName => _s('Name', 'Название');
+  String get labelStatus => _s('Status', 'Статус');
+  String get labelPath => _s('Path', 'Путь');
+  String get labelAdded => _s('Added', 'Добавлен');
+  String get labelFlutter => _s('Flutter', 'Flutter');
+  String get labelDart => _s('Dart', 'Dart');
+  String get labelPlatforms => _s('Platforms', 'Платформы');
+  String get labelDependencies => _s('Dependencies', 'Зависимости');
+  String get labelWidgets => _s('Widgets', 'Виджеты');
+  String get labelLanguage => _s('Language', 'Язык');
+  String get labelLines => _s('Lines', 'Строк');
+  String get labelSize => _s('Size', 'Размер');
+  String get labelDescription => _s('Description', 'Описание');
+  String get labelGoal => _s('Goal', 'Цель');
+  String get labelNotes => _s('Notes', 'Заметки');
+  String get structure => _s('STRUCTURE', 'СТРУКТУРА');
+  String get fileSection => _s('FILE', 'ФАЙЛ');
+  String get localSections => _s('LOCAL SECTIONS', 'ЛОКАЛЬНЫЕ РАЗДЕЛЫ');
+  String get externalLinks => _s('EXTERNAL LINKS', 'ВНЕШНИЕ ССЫЛКИ');
+  String get widgetsPending => _s('(pending analysis)', '(ожидает анализа)');
+
+  // Project status
+  String projectStatusLabel(String status) => switch (status) {
+        'active' => _s('Active', 'Активный'),
+        'paused' => _s('Paused', 'Приостановлен'),
+        'archived' => _s('Archived', 'Архив'),
+        'draft' => _s('Draft', 'Черновик'),
+        _ => status,
+      };
+
+  // Status bar
+  String projectsCount(int count) => _s(
+        '$count project(s)',
+        _ru ? _pluralProjects(count) : '$count project(s)',
+      );
+
+  String _pluralProjects(int count) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count проект';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return '$count проекта';
+    }
+    return '$count проектов';
+  }
+
+  String sdkVersions(String flutter, String dart) =>
+      'Flutter $flutter · Dart $dart';
+
+  String get sdkNotAvailable =>
+      _s('SDK not fully available', 'SDK недоступен полностью');
+
+  // Empty state
+  String get welcomeTitle =>
+      _s('Welcome to Project Manager', 'Добро пожаловать в Project Manager');
+  String get welcomeHint => _s(
+        'Select a project from the left panel or click "Add Project" '
+            'to register a Flutter/Dart project.',
+        'Выберите проект на левой панели или нажмите «Добавить проект», '
+            'чтобы зарегистрировать Flutter/Dart проект.',
+      );
+
+  // Add project dialog
+  String get addFlutterProject =>
+      _s('Add Flutter/Dart Project', 'Добавить Flutter/Dart проект');
+  String get selectProjectFolder => _s(
+        'Select Flutter/Dart Project',
+        'Выберите Flutter/Dart проект',
+      );
+  String get projectPath => _s('Project Path *', 'Путь к проекту *');
+  String get projectPathHint =>
+      _s(r'C:\path\to\flutter_project', r'C:\path\to\flutter_project');
+  String get projectName => _s('Project Name', 'Название проекта');
+  String get projectNameHint =>
+      _s('Auto-detected from pubspec.yaml', 'Из pubspec.yaml');
+  String get projectDescription => _s('Description', 'Описание');
+  String get projectGoal => _s('Project Goal', 'Цель проекта');
+  String get validationPassed => _s('Validation passed', 'Проверка пройдена');
+  String get validationFailed => _s('Validation failed', 'Проверка не пройдена');
+  String platformsDetected(String platforms) =>
+      _s('Platforms: $platforms', 'Платформы: $platforms');
+  String dependenciesFound(int count) => _s(
+        'Dependencies: $count found',
+        'Зависимости: найдено $count',
+      );
+  String get addingProject => _s('Adding...', 'Добавление...');
+  String get flutterSdk => _s('Flutter SDK', 'Flutter SDK');
+  String get dartSdk => _s('Dart SDK', 'Dart SDK');
+  String sdkDetected(String version) =>
+      _s('$version detected', 'обнаружен $version');
+  String get sdkNotFound => _s('not found', 'не найден');
+
+  // Overview
+  String get recentActivity => _s('Recent Activity', 'Недавняя активность');
+  String get sdkIssue => _s('SDK Issue', 'Проблема SDK');
+
+  // Documentation
+  String get localDocumentation =>
+      _s('Local Documentation', 'Локальная документация');
+  String get localDocumentationHint => _s(
+        'Documentation is stored locally and can be exported to files.',
+        'Документация хранится локально и может быть экспортирована в файлы.',
+      );
+  String get sections => _s('SECTIONS', 'РАЗДЕЛЫ');
+  String get docSectionPlaceholder => _s(
+        'Section initialized. Content will appear here as Markdown '
+            'when the project is updated or documentation is generated.',
+        'Раздел инициализирован. Содержимое появится здесь в формате Markdown '
+            'после обновления проекта или генерации документации.',
+      );
+
+  String fileDocSectionTitle(String key) => switch (key) {
+        'overview' => _s('File Overview', 'Обзор файла'),
+        'notes' => _s('Notes', 'Заметки'),
+        'widgets' => _s('Widgets', 'Виджеты'),
+        'analysis' => _s('Code Analysis', 'Анализ кода'),
+        'changelog' => _s('Changelog', 'История изменений'),
+        'dependencies' => _s('Dependencies', 'Зависимости'),
+        _ => key,
+      };
+
+  String get fileDocumentationHeader =>
+      _s('FILE DOCUMENTATION', 'ДОКУМЕНТАЦИЯ ФАЙЛА');
+
+  String fileDocumentationHint(String fileName) => _s(
+        'Local documentation for "$fileName". '
+            'More file-related sections will be added here.',
+        'Локальная документация для «$fileName». '
+            'Здесь появятся дополнительные разделы, связанные с файлом.',
+      );
+
+  String get fileDocFutureHint => _s(
+        'This section will be populated automatically as file analysis is implemented.',
+        'Этот раздел будет заполняться автоматически после реализации анализа файлов.',
+      );
+
+  String docSectionTitle(String key) => switch (key) {
+        'overview' => _s('Project Overview', 'Обзор проекта'),
+        'changelog' => _s('Changelog', 'История изменений'),
+        'dependencies' => _s('Dependencies', 'Зависимости'),
+        'widgets' => _s('Widgets', 'Виджеты'),
+        'changeNotes' => _s('Change Notes', 'Заметки об изменениях'),
+        'codeAnalysis' => _s('Code Analysis (future)', 'Анализ кода (скоро)'),
+        _ => key,
+      };
+
+  // Dependencies view
+  String get noDependencies =>
+      _s('No dependencies found in pubspec.yaml.', 'Зависимости в pubspec.yaml не найдены.');
+  String dependenciesCount(int count) => _s(
+        '$count dependencies',
+        _ru ? '$count зависимостей' : '$count dependencies',
+      );
+  String get colPackage => _s('Package', 'Пакет');
+  String get colVersion => _s('Version', 'Версия');
+  String get colSource => _s('Source', 'Источник');
+  String get colChecked => _s('Checked', 'Проверено');
+  String get colCurrent => _s('Current', 'Текущая');
+  String get colLatest => _s('Latest', 'Новая');
+  String get colDescription => _s('Description', 'Описание');
+  String get devDependency => _s('dev', 'dev');
+  String get loadingDependencies =>
+      _s('Loading dependencies...', 'Загрузка зависимостей...');
+  String get refreshDependencies =>
+      _s('Refresh dependencies', 'Обновить зависимости');
+  String get editPackageMetadata =>
+      _s('Edit package info', 'Редактировать пакет');
+  String get editPackageMetadataTitle =>
+      _s('Package metadata', 'Метаданные пакета');
+  String get editPackageMetadataHint => _s(
+        'Changes apply to this package in all projects.',
+        'Изменения применяются к этому пакету во всех проектах.',
+      );
+  String get packageDescription => _s('Description', 'Описание');
+  String get packageNotes => _s('Notes', 'Заметки');
+  String get packageUpdateRisks => _s('Update risks', 'Риски обновления');
+  String get noDescriptionAvailable => _s(
+        'No description available. Click edit to add one.',
+        'Описание недоступно. Нажмите «Редактировать», чтобы добавить.',
+      );
+  String get openInExplorer => _s('Open in Explorer', 'Открыть в проводнике');
+  String get openInVsCode => _s('Open in VS Code', 'Открыть в VS Code');
+  String get openInVsCodeFailed => _s(
+        'Could not launch VS Code. Make sure the code command is available in PATH.',
+        'Не удалось открыть VS Code. Убедитесь, что команда code доступна в PATH.',
+      );
+  String get openOnPubDev => _s('Open on pub.dev', 'Открыть на pub.dev');
+  String get openRepository => _s('Open repository', 'Открыть репозиторий');
+  String versionArrow(String current, String latest) =>
+      _s('$current → $latest', '$current → $latest');
+  String get globalMetadataBadge =>
+      _s('Global', 'Глобально');
+
+  // File documentation
+  String fileDocProjectPackage(String packageName) => _s(
+        'Project package: $packageName',
+        'Пакет проекта: $packageName',
+      );
+  String get fileDocProjectFiles =>
+      _s('Project files', 'Файлы проекта');
+  String get fileDocPackages => _s('Packages', 'Пакеты');
+  String get fileDocDartSdk => _s('Dart SDK', 'Dart SDK');
+  String get fileDocNoProjectFiles => _s(
+        'No project file imports found.',
+        'Импорты файлов проекта не найдены.',
+      );
+  String get fileDocNoPackages => _s(
+        'No external package imports found.',
+        'Внешние пакеты не найдены.',
+      );
+  String get fileDocNoSdkImports => _s(
+        'No Dart SDK imports found.',
+        'Импорты Dart SDK не найдены.',
+      );
+  String get fileDocStatusLinked => _s('linked', 'связан');
+  String get fileDocStatusExternal => _s('external', 'внешний');
+  String get fileDocStatusNotFound => _s('not found', 'не найден');
+  String fileDocImportsSummary(int files, int packages, int sdk) {
+    if (sdk == 0) {
+      return _s(
+        '$files files · $packages packages',
+        '$files файлов · $packages пакетов',
+      );
+    }
+    return _s(
+      '$files files · $packages packages · $sdk sdk',
+      '$files файлов · $packages пакетов · $sdk sdk',
+    );
+  }
+
+  // Cursor CLI settings
+  String get cursorCliSection => _s('Cursor CLI', 'Cursor CLI');
+  String get cursorCliSectionHint => _s(
+        'Connect Project Manager to Cursor Agent CLI for future automation workflows.',
+        'Подключите Project Manager к Cursor Agent CLI для будущих сценариев автоматизации.',
+      );
+  String get cursorCliEnabled => _s('Enable Cursor CLI', 'Включить Cursor CLI');
+  String get cursorCliCommand => _s('CLI command', 'Команда CLI');
+  String get cursorCliCommandHint => _s('agent', 'agent');
+  String get cursorCliApiKey => _s('API key', 'API-ключ');
+  String get cursorCliApiKeyHint => _s(
+        'Optional if CURSOR_API_KEY is set in environment',
+        'Необязательно, если CURSOR_API_KEY задан в окружении',
+      );
+  String get cursorCliUseEnvApiKey => _s(
+        'Use CURSOR_API_KEY from environment',
+        'Использовать CURSOR_API_KEY из окружения',
+      );
+  String get cursorCliDefaultModel => _s('Default model', 'Модель по умолчанию');
+  String get cursorCliCustomModel => _s('Custom model', 'Своя модель');
+  String get cursorCliDefaultMode => _s('Default mode', 'Режим по умолчанию');
+  String cursorCliModeLabel(String mode) => switch (mode) {
+        'agent' => _s('Agent', 'Agent'),
+        'plan' => _s('Plan', 'Plan'),
+        'ask' => _s('Ask', 'Ask'),
+        _ => mode,
+      };
+  String get cursorCliInstallTitle => _s('Installation', 'Установка');
+  String get cursorCliInstallHint => _s(
+        'Install Cursor CLI, then verify with the command below.',
+        'Установите Cursor CLI, затем проверьте командой ниже.',
+      );
+  String get cursorCliVerifyCommand => _s('Verify', 'Проверка');
+  String get cursorCliAuthCommand => _s('Authenticate', 'Авторизация');
+  String get cursorCliTestConnection =>
+      _s('Test connection', 'Проверить подключение');
+  String get cursorCliOpenInstallDocs =>
+      _s('Installation docs', 'Документация по установке');
+  String get cursorCliOpenOverview => _s('CLI overview', 'Обзор CLI');
+  String get cursorCliOpenAuthDocs =>
+      _s('Authentication docs', 'Документация по авторизации');
+  String get cursorCliOpenParametersDocs =>
+      _s('CLI parameters', 'Параметры CLI');
+  String get cursorCliConnectionOk => _s('Connected', 'Подключено');
+  String get cursorCliConnectionFailed =>
+      _s('Connection failed', 'Подключение не удалось');
+  String cursorCliVersionDetected(String version) =>
+      _s('Version: $version', 'Версия: $version');
+  String cursorCliModelsFound(int count) => _s(
+        '$count models available from CLI',
+        'Доступно моделей из CLI: $count',
+      );
+  String get cursorCliAuthRequired => _s(
+        'Run "agent login" or set CURSOR_API_KEY.',
+        'Выполните «agent login» или задайте CURSOR_API_KEY.',
+      );
+  String get copy => _s('Copy', 'Копировать');
+  String get copied => _s('Copied', 'Скопировано');
+  String get statusBarCursorCliLabel => _s('Cursor CLI', 'Cursor CLI');
+  String get statusBarCursorCliConnected =>
+      _s('Connected', 'Подключен');
+  String get statusBarCursorCliUnavailable =>
+      _s('Unavailable', 'Нет доступа');
+  String get statusBarCursorCliNoModel => _s('No model', 'Нет модели');
+  String get statusBarCursorCliDisabled => _s('Disabled', 'Выключен');
+  String get statusBarCursorCliChecking => _s('Checking...', 'Проверка...');
+  String statusBarCursorCliConnectedWithModel(String model) => _s(
+        'Connected · $model',
+        'Подключен · $model',
+      );
+
+  // Widgets
+  String get widgetInventory => _s('Widget Inventory', 'Каталог виджетов');
+  String get loadingWidgets =>
+      _s('Scanning widgets...', 'Сканирование виджетов...');
+  String get refreshWidgets =>
+      _s('Refresh widgets', 'Обновить виджеты');
+  String get widgetsSearchHint =>
+      _s('Search widgets...', 'Поиск виджетов...');
+  String get widgetsScopeProject => _s('Project', 'Проект');
+  String get widgetsScopeFile => _s('File', 'Файл');
+  String get widgetsSelectFile => _s('Select file', 'Выберите файл');
+  String get noWidgetsFound =>
+      _s('No widgets found.', 'Виджеты не найдены.');
+  String get widgetsSelectPrompt => _s(
+        'Select a widget to inspect details.',
+        'Выберите виджет, чтобы посмотреть детали.',
+      );
+  String get widgetsFilterAll => _s('All', 'Все');
+  String get widgetsFilterCustom => _s('Custom', 'Свои');
+  String get widgetsFilterLibrary => _s('Library', 'Библиотека');
+  String get widgetsLibraryOnly =>
+      _s('Library widget', 'Библиотечный виджет');
+  String widgetsSummary(int total, int custom, int usages) => _s(
+        '$total widgets · $custom custom · $usages usages',
+        '$total виджетов · $custom своих · $usages использований',
+      );
+
+  // Media
+  String get loadingMedia =>
+      _s('Scanning assets folder...', 'Сканирование папки assets...');
+  String get refreshMedia => _s('Refresh media', 'Обновить медиа');
+  String get mediaSearchHint =>
+      _s('Search media files...', 'Поиск медиафайлов...');
+  String get mediaVisualOnly =>
+      _s('Images only', 'Только изображения');
+  String get mediaFilterAll => _s('All folders', 'Все папки');
+  String get mediaAssetsFolderMissing => _s(
+        'The assets folder was not found in this project.',
+        'Папка assets не найдена в этом проекте.',
+      );
+  String get mediaNoFiles => _s(
+        'No media files found in assets.',
+        'Медиафайлы в assets не найдены.',
+      );
+  String get mediaNoMatches => _s(
+        'No media files match the current filters.',
+        'Нет медиафайлов по текущим фильтрам.',
+      );
+  String get mediaUndeclaredHint => _s(
+        'Files with a warning are not declared in pubspec.yaml assets.',
+        'Файлы с предупреждением не объявлены в assets pubspec.yaml.',
+      );
+  String get mediaNotDeclared => _s('Not in pubspec', 'Нет в pubspec');
+  String get mediaOtherType => _s('File', 'Файл');
+  String mediaSummary(int shown, int total, int undeclared) => _s(
+        '$shown of $total media files · $undeclared not in pubspec',
+        '$shown из $total медиафайлов · $undeclared не в pubspec',
+      );
+  String get mediaSelectPrompt => _s(
+        'Select a media file to see AppAssets bindings and usages.',
+        'Выберите медиафайл, чтобы увидеть AppAssets и использования.',
+      );
+  String get mediaAppAssetsBindings =>
+      _s('AppAssets bindings', 'Привязки AppAssets');
+  String get mediaUsages => _s('Usages in code', 'Использования в коде');
+  String get mediaNoUsages =>
+      _s('No usages found in project code.', 'Использования в коде не найдены.');
+  String get mediaOpenFile => _s('Open file', 'Открыть файл');
+  String get mediaPreloadListMember =>
+      _s('Included in preload list', 'В списке предзагрузки');
+  String get mediaTemplateBinding =>
+      _s('Template path', 'Шаблон пути');
+  String get mediaMethodBinding =>
+      _s('Returned by method', 'Возвращается методом');
+  String mediaUsageCount(int count) =>
+      _s('$count usages', '$count исп.');
+  String get mediaFontPreviewSample => _s(
+        'The quick brown fox jumps 0123456789',
+        'Съешь же ещё этих мягких французских булок 0123456789',
+      );
+  String get mediaFontUnsupportedFormat => _s(
+        'Preview is available for TTF and OTF fonts only.',
+        'Предпросмотр доступен только для шрифтов TTF и OTF.',
+      );
+  String failedToLoadFont(String error) => _s(
+        error.isEmpty ? 'Failed to load font.' : 'Failed to load font: $error',
+        error.isEmpty
+            ? 'Не удалось загрузить шрифт.'
+            : 'Не удалось загрузить шрифт: $error',
+      );
+
+  // Builds
+  String get buildsLoading =>
+      _s('Loading build configurations...', 'Загрузка конфигураций сборки...');
+  String get refreshBuilds =>
+      _s('Refresh builds', 'Обновить сборки');
+  String get buildsSearchHint => _s(
+        'Search build configurations...',
+        'Поиск конфигураций сборки...',
+      );
+  String buildsSummary(int shown, int total) => _s(
+        '$shown of $total build configurations',
+        '$shown из $total конфигураций сборки',
+      );
+  String get buildsNoVscodeConfigs => _s(
+        'No .vscode/tasks.json found. Showing default Flutter build commands.',
+        'Файл .vscode/tasks.json не найден. Показаны стандартные команды сборки Flutter.',
+      );
+  String get buildsUsingDefaults => _s(
+        'Using default Flutter build commands. Add .vscode/tasks.json for project-specific builds.',
+        'Используются стандартные команды сборки Flutter. Добавьте .vscode/tasks.json для своих сборок.',
+      );
+  String buildsUsingDefaultsForPlatforms(String platforms) => _s(
+        'Default Flutter builds for: $platforms',
+        'Стандартные сборки Flutter для: $platforms',
+      );
+  String get buildsUsingDefaultsNoPlatforms => _s(
+        'No platforms detected. Add .vscode/tasks.json or platform folders to the project.',
+        'Платформы не обнаружены. Добавьте .vscode/tasks.json или папки платформ в проект.',
+      );
+  String get buildsNoMatches => _s(
+        'No build configurations match the current filters.',
+        'Нет конфигураций сборки по текущим фильтрам.',
+      );
+  String get buildsSelectPrompt => _s(
+        'Select a build configuration to inspect and run it.',
+        'Выберите конфигурацию сборки для просмотра и запуска.',
+      );
+  String get buildsOpenTasksJson =>
+      _s('tasks.json', 'tasks.json');
+  String get buildsFilterAll => _s('All', 'Все');
+  String get buildsFilterTasks => _s('Tasks', 'Задачи');
+  String get buildsFilterDefaults => _s('Flutter defaults', 'Flutter по умолчанию');
+  String get buildsRun => _s('Run', 'Запустить');
+  String get buildsStop => _s('Stop', 'Остановить');
+  String get buildsCopyCommand =>
+      _s('Copy command', 'Копировать команду');
+  String get buildsOpenSource =>
+      _s('Open source file', 'Открыть исходный файл');
+  String get buildsOutput => _s('Output', 'Вывод');
+  String get buildsOutputEmpty =>
+      _s('Build output will appear here.', 'Здесь появится вывод сборки.');
+  String get buildsStopped => _s('Build stopped.', 'Сборка остановлена.');
+  String get buildsCommandCopied =>
+      _s('Command copied to clipboard.', 'Команда скопирована в буфер обмена.');
+  String get buildsCannotRun => _s(
+        'This build configuration cannot be run directly.',
+        'Эту конфигурацию сборки нельзя запустить напрямую.',
+      );
+  String buildsFinished(int exitCode) => _s(
+        'Finished with exit code $exitCode.',
+        'Завершено с кодом $exitCode.',
+      );
+  String buildsFailed(Object error) => _s(
+        'Build failed: $error',
+        'Сборка не удалась: $error',
+      );
+  String buildsExitCode(int code) =>
+      _s('Exit code: $code', 'Код выхода: $code');
+  String buildsPreLaunchTask(String task) => _s(
+        'preLaunch: $task',
+        'preLaunch: $task',
+      );
+  String get buildsBackgroundTask =>
+      _s('background', 'фоновая');
+  String get buildsLabelSource => _s('Source', 'Источник');
+  String get buildsLabelMode => _s('Mode', 'Режим');
+  String get buildsLabelType => _s('Type', 'Тип');
+  String get buildsLabelProgram => _s('Program', 'Program');
+  String get buildsLabelDevice => _s('Device', 'Устройство');
+  String get buildsLabelPreLaunch => _s('Pre-launch task', 'Задача preLaunch');
+  String get buildsLabelTaskGroup => _s('Task group', 'Группа задач');
+  String get buildsLabelChildren =>
+      _s('Configurations', 'Конфигурации');
+  String get buildsLabelCommand => _s('Command', 'Команда');
+  String get buildsSourceTasks => _s('tasks.json', 'tasks.json');
+  String get buildsSourceDefault =>
+      _s('flutter default', 'flutter по умолчанию');
+  String get buildsModeDebug => _s('debug', 'debug');
+  String get buildsModeProfile => _s('profile', 'profile');
+  String get buildsModeRelease => _s('release', 'release');
+  String get buildsModeAttach => _s('attach', 'attach');
+  String get buildsModeBuild => _s('build', 'build');
+  String get buildsModeTest => _s('test', 'test');
+  String get buildsModeCompound => _s('compound', 'compound');
+  String get buildsModeCustom => _s('custom', 'custom');
+  String get buildsHistory =>
+      _s('Build history', 'История сборок');
+  String get buildsHistoryEmpty => _s(
+        'No archived builds yet. Successful builds are saved here automatically.',
+        'Архивных сборок пока нет. Успешные сборки сохраняются здесь автоматически.',
+      );
+  String buildsHistoryFiles(int count) => _s(
+        '$count file(s)',
+        '$count файл(ов)',
+      );
+  String buildsArchived(String version) => _s(
+        'Build archived (version $version).',
+        'Сборка сохранена (версия $version).',
+      );
+  String get buildsArchiveFailed => _s(
+        'Build succeeded but artifacts could not be archived.',
+        'Сборка завершилась успешно, но артефакты не удалось сохранить.',
+      );
+  String get buildsOpenArchiveFolder =>
+      _s('Open folder', 'Открыть папку');
+  String get buildsDeleteArchive =>
+      _s('Delete archive', 'Удалить архив');
+  String get buildsDeleteArchiveConfirm => _s(
+        'Delete this archived build?',
+        'Удалить эту сохранённую сборку?',
+      );
+  String get buildsHistoryArtifacts =>
+      _s('Artifacts', 'Артефакты');
+  String get buildsHistorySelectArchive => _s(
+        'Select an archived build to view its files.',
+        'Выберите сохранённую сборку, чтобы посмотреть файлы.',
+      );
+  String get buildsHistoryFilterAll => _s('All builds', 'Все сборки');
+  String get buildsHistoryFilterLocal => _s('Local', 'Локальные');
+  String get buildsHistoryFilterGitLab => _s('GitLab CI', 'GitLab CI');
+  String get buildsHistorySourceLocal => _s('Local', 'Локально');
+  String get buildsHistorySourceGitLab => _s('GitLab CI', 'GitLab CI');
+  String get buildsOpenInGitLab => _s('Open in GitLab', 'Открыть в GitLab');
+  String get buildsDownloadArtifacts =>
+      _s('Download artifacts', 'Скачать артефакты');
+  String get buildsLoadingGitLabBuilds =>
+      _s('Loading GitLab CI builds...', 'Загрузка сборок GitLab CI...');
+  String get buildsGitLabBuildsHint => _s(
+        'Connect GitLab in Settings and use a GitLab remote to load CI builds.',
+        'Подключите GitLab в настройках и используйте GitLab remote для загрузки CI-сборок.',
+      );
+  String buildsGitLabJobsFromYaml(int count) => _s(
+        'Build jobs from .gitlab-ci.yml: $count',
+        'Сборочные job из .gitlab-ci.yml: $count',
+      );
+  String get buildsFilterGitLabCi => _s('GitLab CI', 'GitLab CI');
+  String get buildsSourceGitLabCi => _s('GitLab CI', 'GitLab CI');
+  String get buildsRunInGitLab => _s('Run in GitLab', 'Запустить в GitLab');
+  String buildsGitLabPipelineStarted(int id, String url) => _s(
+        'GitLab pipeline #$id started${url.isEmpty ? '.' : ': $url'}',
+        'Pipeline GitLab #$id запущен${url.isEmpty ? '.' : ': $url'}',
+      );
+  String buildsGitLabPipelineFailed(String error) => _s(
+        'GitLab pipeline failed: $error',
+        'Pipeline GitLab не запущен: $error',
+      );
+  String get buildsGitLabPipelineRef => _s('Branch', 'Ветка');
+  String get buildsPageConfigurations =>
+      _s('Configurations', 'Конфигурации');
+  String get buildsPageHistory => _s('Build history', 'История сборок');
+
+  String get widgetsLabelType => _s('Type', 'Тип');
+  String get widgetsLabelUsages => _s('Usages', 'Использования');
+  String get widgetsLabelConst => _s('Const', 'Const');
+  String get widgetsDefinition => _s('Definition', 'Определение');
+  String get widgetsUsages => _s('Usages', 'Использования');
+  String get widgetsStateClass => _s('State class', 'State-класс');
+  String get widgetsConstructorParams =>
+      _s('Constructor params', 'Параметры конструктора');
+  String get widgetsNoUsages =>
+      _s('No usages found.', 'Использования не найдены.');
+  String widgetsUsedIn(String name) =>
+      _s('Used in: $name', 'Использовано в: $name');
+  String get widgetsPositionalArgs =>
+      _s('Positional args', 'Позиционные аргументы');
+  String get widgetsNamedArgs => _s('Named args', 'Именованные аргументы');
+  String widgetsRecorded(int count) => _s(
+        '$count widget(s) recorded',
+        _ru ? 'Записано виджетов: $count' : '$count widget(s) recorded',
+      );
+
+  // Analysis placeholder
+  String get codeAnalysis => _s('Code Analysis', 'Анализ кода');
+  String codeAnalysisHint(String projectName) => _s(
+        'Automated code analysis will be added in a future release. '
+            'Storage directories for analysis artifacts and agent workflow '
+            'are already prepared for project "$projectName".',
+        'Автоматический анализ кода будет добавлен в будущих версиях. '
+            'Каталоги для артефактов анализа и agent workflow '
+            'уже подготовлены для проекта «$projectName».',
+      );
+  String get featureStructureAnalysis =>
+      _s('Structure analysis', 'Анализ структуры');
+  String get featureWidgetDiscovery =>
+      _s('Widget discovery', 'Поиск виджетов');
+  String get featureDependencyTracking =>
+      _s('Dependency tracking', 'Отслеживание зависимостей');
+  String get featureAgentWorkflow =>
+      _s('Agent workflow', 'Agent workflow');
+
+  // Tasks placeholder
+  String get tasksTitle => _s('Tasks', 'Задачи');
+  String get tasksHint => _s(
+        'Task tracking will be available in a future release.',
+        'Учёт задач будет доступен в будущих версиях.',
+      );
+
+  // File preview
+  String get closeFile => _s('Close file', 'Закрыть файл');
+  String get viewImage => _s('Image', 'Изображение');
+  String get viewText => _s('Text', 'Текст');
+  String binaryFilePreview(String size) => _s(
+        'Binary file ($size). Preview is not available.',
+        'Бинарный файл ($size). Просмотр недоступен.',
+      );
+  String fileTooLarge(String size, int maxKb) => _s(
+        'File is too large ($size). Maximum preview size is $maxKb KB.',
+        'Файл слишком большой ($size). Максимальный размер: $maxKb КБ.',
+      );
+  String get unknownError => _s('Unknown error.', 'Неизвестная ошибка.');
+  String get fileSearchHint => _s('Find in file…', 'Поиск в файле…');
+  String get fileSearchNoMatches => _s('No matches', 'Нет совпадений');
+  String fileSearchMatchCount(int current, int total) => _s(
+        '$current of $total',
+        '$current из $total',
+      );
+  String get fileSearchPrevious => _s('Previous match', 'Предыдущее совпадение');
+  String get fileSearchNext => _s('Next match', 'Следующее совпадение');
+  String get fileCopyAll => _s('Copy all', 'Копировать всё');
+  String get fileCopiedToClipboard =>
+      _s('Copied to clipboard', 'Скопировано в буфер обмена');
+
+  // Git / GitLab
+  String get gitSectionTitle => _s('Repository changes', 'Изменения репозитория');
+  String get refreshGitStatus => _s('Refresh git status', 'Обновить статус git');
+  String get loadingGitStatus =>
+      _s('Checking repository...', 'Проверка репозитория...');
+  String get gitNotRepository => _s(
+        'This folder is not a Git repository.',
+        'Эта папка не является Git-репозиторием.',
+      );
+  String get gitWorkingTreeClean => _s(
+        'Working tree clean — no local changes.',
+        'Рабочая копия чистая — локальных изменений нет.',
+      );
+  String get gitChangesCount => _s('Changes', 'Изменения');
+  String gitChangesSummary(int total, int staged, int unstaged, int untracked) =>
+      _s(
+        '$total changed · $staged staged · $unstaged unstaged · $untracked untracked',
+        '$total изменений · $staged в индексе · $unstaged не в индексе · $untracked неотслеж.',
+      );
+  String get gitBranch => _s('Branch', 'Ветка');
+  String get gitUpstream => _s('Upstream', 'Upstream');
+  String get gitRemote => _s('Remote', 'Remote');
+  String get gitAheadBehind => _s('Ahead / Behind', 'Впереди / Позади');
+  String gitAheadBehindValue(int ahead, int behind) =>
+      _s('↑$ahead · ↓$behind', '↑$ahead · ↓$behind');
+  String get gitFilterAll => _s('All', 'Все');
+  String get gitFilterStaged => _s('Staged', 'В индексе');
+  String get gitFilterUnstaged => _s('Unstaged', 'Не в индексе');
+  String get gitFilterUntracked => _s('Untracked', 'Неотслеж.');
+  String get gitOpenInGitLab => _s('Open in GitLab', 'Открыть в GitLab');
+  String get gitFileHistory => _s('File history', 'История файла');
+  String gitLineHistory(int line) =>
+      _s('Line $line history', 'История строки $line');
+  String get gitHistoryEmpty =>
+      _s('No commits found.', 'Коммиты не найдены.');
+  String get gitOpenFileHistoryInGitLab =>
+      _s('Open file history in GitLab', 'Открыть историю файла в GitLab');
+  String gitOpenLineInGitLab(int line) => _s(
+        'Open line $line in GitLab',
+        'Открыть строку $line в GitLab',
+      );
+  String get gitViewHistory => _s('History', 'История');
+  String get gitProjectGraph => _s('Project graph', 'Граф проекта');
+  String get gitFileGraph => _s('File graph', 'Граф файла');
+  String get gitGraphEmpty =>
+      _s('No commits found for graph.', 'Коммиты для графа не найдены.');
+  String get gitOpenProjectGraphInGitLab => _s(
+        'Open repository graph in GitLab',
+        'Открыть граф репозитория в GitLab',
+      );
+  String get gitOpenFileGraphInGitLab => _s(
+        'Open file graph in GitLab',
+        'Открыть граф файла в GitLab',
+      );
+  String get gitViewGraph => _s('Graph', 'Граф');
+  String get gitGraphViewLanes => _s('Lanes', 'Линии');
+  String get gitGraphViewTree => _s('Tree', 'Дерево');
+  String gitTreeTipsCount(int count) =>
+      _s('$count branch tips', '$count кончиков веток');
+  String gitTreeSummary(int tips, int rows) =>
+      _s('$tips tips · $rows commits', '$tips веток · $rows коммитов');
+  String get gitTreeExpandAll => _s('Expand all', 'Раскрыть все');
+  String get gitTreeCollapseAll => _s('Collapse all', 'Свернуть все');
+  String get gitTreeExpand => _s('Expand parents', 'Раскрыть родителей');
+  String get gitTreeCollapse => _s('Collapse parents', 'Свернуть родителей');
+  String get gitConfigureGitLab => _s(
+        'Configure GitLab in Settings to verify API access.',
+        'Настройте GitLab в параметрах для проверки API.',
+      );
+  String gitStatusLabel(String status) {
+    return switch (status) {
+      'untracked' => _s('Untracked', 'Неотслеж.'),
+      'modified' => _s('Modified', 'Изменён'),
+      'staged' => _s('Staged', 'В индексе'),
+      'stagedModified' => _s('Staged + modified', 'Индекс + изменения'),
+      'added' => _s('Added', 'Добавлен'),
+      'deleted' => _s('Deleted', 'Удалён'),
+      'renamed' => _s('Renamed', 'Переименован'),
+      'copied' => _s('Copied', 'Скопирован'),
+      'conflicted' => _s('Conflicted', 'Конфликт'),
+      'ignored' => _s('Ignored', 'Игнорируется'),
+      _ => status,
+    };
+  }
+
+  String get gitlabSection => _s('GitLab', 'GitLab');
+  String get gitlabSectionHint => _s(
+        'Connect to GitLab API for authentication checks and project links.',
+        'Подключение к GitLab API для проверки доступа и ссылок на проект.',
+      );
+  String get gitlabEnabled => _s('Enable GitLab integration', 'Включить GitLab');
+  String get gitlabBaseUrl => _s('GitLab URL', 'URL GitLab');
+  String get gitlabToken => _s('Personal access token', 'Personal access token');
+  String get gitlabUseEnvToken => _s(
+        'Use GITLAB_TOKEN from environment',
+        'Использовать GITLAB_TOKEN из окружения',
+      );
+  String get gitlabTestConnection => _s('Test connection', 'Проверить подключение');
+  String get gitlabOpenDocs => _s('Token docs', 'Документация по токену');
+  String get gitlabConnectionOk => _s('Connected', 'Подключено');
+  String get gitlabConnectionFailed =>
+      _s('Connection failed', 'Подключение не удалось');
+  String gitlabConnectedAs(String username) =>
+      _s('Connected as $username', 'Подключено как $username');
+
+  String get failedToLoadFile =>
+      _s('Failed to load file.', 'Не удалось загрузить файл.');
+  String failedToLoadImage(Object error) => _s(
+        'Failed to load image: $error',
+        'Не удалось загрузить изображение: $error',
+      );
+
+  // File types (details panel)
+  String get fileTypeImage => _s('Image', 'Изображение');
+  String get fileTypeSvg => _s('SVG', 'SVG');
+  String get plainText => _s('Plain Text', 'Обычный текст');
+
+  String languageDisplayName(String? languageId) {
+    if (languageId == null) return plainText;
+    return switch (languageId) {
+      'dart' => 'Dart',
+      'yaml' => 'YAML',
+      'json' => 'JSON',
+      'xml' => _s('XML / HTML', 'XML / HTML'),
+      'css' => 'CSS',
+      'scss' => 'SCSS',
+      'javascript' => 'JavaScript',
+      'typescript' => 'TypeScript',
+      'kotlin' => 'Kotlin',
+      'java' => 'Java',
+      'swift' => 'Swift',
+      'gradle' => 'Gradle',
+      'groovy' => 'Groovy',
+      'bash' => _s('Shell', 'Shell'),
+      'cmake' => 'CMake',
+      'markdown' => 'Markdown',
+      'sql' => 'SQL',
+      'protobuf' => _s('Protocol Buffers', 'Protocol Buffers'),
+      'properties' => _s('Properties', 'Properties'),
+      'ini' => _s('INI / TOML', 'INI / TOML'),
+      'c' => 'C',
+      'cpp' => 'C++',
+      'rust' => 'Rust',
+      'go' => 'Go',
+      'python' => 'Python',
+      'ruby' => 'Ruby',
+      _ => languageId,
+    };
+  }
+}
+
+class _AppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
+  const _AppLocalizationsDelegate();
+
+  @override
+  bool isSupported(Locale locale) =>
+      ['en', 'ru'].contains(locale.languageCode);
+
+  @override
+  Future<AppLocalizations> load(Locale locale) async {
+    return AppLocalizations(locale);
+  }
+
+  @override
+  bool shouldReload(_AppLocalizationsDelegate old) => false;
+}
+
+extension AppLocalizationsContext on BuildContext {
+  AppLocalizations get l10n => AppLocalizations.of(this);
+}

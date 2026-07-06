@@ -1,0 +1,608 @@
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:project_manager/core/utils/file_type_utils.dart';
+import 'package:project_manager/core/utils/syntax_language.dart';
+import 'package:project_manager/models/change_record.dart';
+import 'package:project_manager/models/file_preview_focus.dart';
+import 'package:project_manager/models/git_commit_entry.dart';
+import 'package:project_manager/models/git_commit_graph_entry.dart';
+import 'package:project_manager/models/git_repository_status.dart';
+import 'package:project_manager/models/global_package_metadata.dart';
+import 'package:project_manager/models/opened_file.dart';
+import 'package:project_manager/models/project.dart';
+import 'package:project_manager/models/project_file_node.dart';
+import 'package:project_manager/models/project_status.dart';
+import 'package:project_manager/models/validation_result.dart';
+import 'package:project_manager/services/dependency_resolver_service.dart';
+import 'package:project_manager/services/documentation_service.dart';
+import 'package:project_manager/services/file_documentation_service.dart';
+import 'package:project_manager/services/git_service.dart';
+import 'package:project_manager/services/global_package_metadata_service.dart';
+import 'package:project_manager/services/project_files_service.dart';
+import 'package:project_manager/services/project_storage_service.dart';
+import 'package:project_manager/services/project_validator_service.dart';
+import 'package:project_manager/services/widget_analyzer_service.dart';
+import 'package:uuid/uuid.dart';
+
+enum WorkspaceTab {
+  overview,
+  documentation,
+  dependencies,
+  widgets,
+  media,
+  gitlab,
+  builds,
+  analysis,
+}
+
+enum DetailPanelSection {
+  details,
+  documentation,
+  tasks,
+}
+class ProjectManagerState extends ChangeNotifier {
+  ProjectManagerState({
+    ProjectStorageService? storage,
+    ProjectValidatorService? validator,
+    DocumentationService? documentation,
+    ProjectFilesService? filesService,
+    FileDocumentationService? fileDocumentation,
+    DependencyResolverService? dependencyResolver,
+    GlobalPackageMetadataService? globalPackageMetadata,
+    WidgetAnalyzerService? widgetAnalyzer,
+    GitService? gitService,
+  })  : _storage = storage ?? ProjectStorageService(),
+        _validator = validator ?? ProjectValidatorService(),
+        _documentation = documentation ?? DocumentationService(),
+        _filesService = filesService ?? ProjectFilesService(),
+        _fileDocumentation = fileDocumentation ?? FileDocumentationService(),
+        _dependencyResolver = dependencyResolver ?? DependencyResolverService(),
+        _globalMetadataService =
+            globalPackageMetadata ?? GlobalPackageMetadataService(),
+        _widgetAnalyzer = widgetAnalyzer ?? WidgetAnalyzerService(),
+        _gitService = gitService ?? GitService();
+
+  final ProjectStorageService _storage;
+  final ProjectValidatorService _validator;
+  final DocumentationService _documentation;
+  final ProjectFilesService _filesService;
+  final FileDocumentationService _fileDocumentation;
+  final DependencyResolverService _dependencyResolver;
+  final GlobalPackageMetadataService _globalMetadataService;
+  final WidgetAnalyzerService _widgetAnalyzer;
+  final GitService _gitService;
+  static const _uuid = Uuid();
+
+  List<Project> _projects = [];
+  Project? _selectedProject;
+  List<ProjectFileNode> _fileTree = [];
+  Set<String> _expandedDirectoryPaths = {};
+  final List<String> _openFilePaths = [];
+  final Map<String, OpenedFile> _openFiles = {};
+  String? _activeFilePath;
+  FilePreviewFocus? _filePreviewFocus;
+  int _filePreviewFocusToken = 0;
+  bool _isOpeningFile = false;
+  WorkspaceTab _activeTab = WorkspaceTab.overview;
+  DetailPanelSection _detailSection = DetailPanelSection.details;
+  bool _isLoading = true;
+  bool _isLoadingFiles = false;
+  bool _isLoadingDependencies = false;
+  bool _isLoadingWidgets = false;
+  bool _isLoadingGit = false;
+  bool _isAddingProject = false;
+  String? _lastError;
+  Map<String, GlobalPackageMetadata> _globalPackageMetadata = {};
+  GitRepositoryStatus? _gitRepositoryStatus;
+
+  List<Project> get projects => List.unmodifiable(_projects);
+  Project? get selectedProject => _selectedProject;
+  List<ProjectFileNode> get fileTree => List.unmodifiable(_fileTree);
+  Set<String> get expandedDirectoryPaths => Set.unmodifiable(_expandedDirectoryPaths);
+  List<String> get openFilePaths => List.unmodifiable(_openFilePaths);
+  String? get activeFilePath => _activeFilePath;
+  OpenedFile? get activeOpenedFile =>
+      _activeFilePath != null ? _openFiles[_activeFilePath] : null;
+  FilePreviewFocus? get filePreviewFocus => _filePreviewFocus;
+  int get filePreviewFocusToken => _filePreviewFocusToken;
+  bool get isOpeningFile => _isOpeningFile;
+  bool isFileOpen(String path) => _openFiles.containsKey(path);
+  WorkspaceTab get activeTab => _activeTab;
+  DetailPanelSection get detailSection => _detailSection;
+  bool get isLoading => _isLoading;
+  bool get isLoadingFiles => _isLoadingFiles;
+  bool get isLoadingDependencies => _isLoadingDependencies;
+  bool get isLoadingWidgets => _isLoadingWidgets;
+  bool get isLoadingGit => _isLoadingGit;
+  bool get isAddingProject => _isAddingProject;
+  String? get lastError => _lastError;
+  GitRepositoryStatus? get gitRepositoryStatus => _gitRepositoryStatus;
+  Map<String, GlobalPackageMetadata> get globalPackageMetadata =>
+      Map.unmodifiable(_globalPackageMetadata);
+
+  GlobalPackageMetadata? globalMetadataFor(String packageName) =>
+      _globalPackageMetadata[packageName];
+
+  Future<void> initialize() async {
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      _globalPackageMetadata = await _globalMetadataService.loadAll();
+      _projects = await _storage.loadProjects();
+      if (_projects.isNotEmpty && _selectedProject == null) {
+        _selectedProject = _projects.first;
+        await _loadProjectFiles(_selectedProject!.path);
+        await _resolveDependenciesForSelectedProject();
+        await _scanWidgetsForSelectedProject();
+        await _refreshGitStatusForSelectedProject();
+      }
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void selectProject(Project? project) {
+    _selectedProject = project;
+    _clearOpenFiles();
+    _activeTab = WorkspaceTab.overview;
+    notifyListeners();
+
+    if (project != null) {
+      _loadProjectFiles(project.path);
+      _resolveDependenciesForSelectedProject();
+      _scanWidgetsForSelectedProject();
+      _refreshGitStatusForSelectedProject();
+    } else {
+      _fileTree = [];
+      _expandedDirectoryPaths = {};
+      _gitRepositoryStatus = null;
+    }
+  }
+
+  void _clearOpenFiles() {
+    _openFilePaths.clear();
+    _openFiles.clear();
+    _activeFilePath = null;
+    _filePreviewFocus = null;
+    _filePreviewFocusToken = 0;
+  }
+
+  void _setFilePreviewFocus(int? line) {
+    if (line == null || line <= 0) {
+      _filePreviewFocus = null;
+      return;
+    }
+    _filePreviewFocus = FilePreviewFocus(line: line);
+    _filePreviewFocusToken++;
+  }
+
+  Future<void> openFile(String filePath, {int? line}) async {
+    _activeFilePath = filePath;
+    _detailSection = DetailPanelSection.details;
+    _setFilePreviewFocus(line);
+
+    if (_openFiles.containsKey(filePath)) {
+      if (!_openFilePaths.contains(filePath)) {
+        _openFilePaths.add(filePath);
+      }
+      notifyListeners();
+      return;
+    }
+
+    _isOpeningFile = true;
+    notifyListeners();
+
+    try {
+      final project = _selectedProject;
+      if (project == null) return;
+
+      final preview = await _filesService.readFilePreview(filePath);
+      final fileName = p.basename(filePath);
+      final relativePath = _filesService.relativePath(project.path, filePath);
+      final lineCount = switch (preview.kind) {
+        FilePreviewKind.text || FilePreviewKind.svg =>
+          preview.content?.split('\n').length ?? 0,
+        _ => 0,
+      };
+
+      final languageId = isImageFile(fileName)
+          ? null
+          : syntaxLanguageForFile(fileName);
+
+      final docResult = await _fileDocumentation.initializeForFile(
+        projectId: project.id,
+        relativePath: relativePath,
+        fileName: fileName,
+        language: languageId,
+        lineCount: lineCount,
+        sizeBytes: preview.sizeBytes,
+        projectRoot: project.path,
+        absoluteFilePath: filePath,
+        fileContent: preview.kind == FilePreviewKind.text ||
+                preview.kind == FilePreviewKind.svg
+            ? preview.content
+            : null,
+      );
+
+      _openFiles[filePath] = OpenedFile(
+        path: filePath,
+        fileName: fileName,
+        relativePath: relativePath,
+        preview: preview,
+        lineCount: lineCount,
+        languageId: languageId,
+        documentationSections: docResult.sections,
+        dartImportAnalysis: docResult.dartImportAnalysis,
+      );
+      if (!_openFilePaths.contains(filePath)) {
+        _openFilePaths.add(filePath);
+      }
+    } finally {
+      _isOpeningFile = false;
+      notifyListeners();
+    }
+  }
+
+  void setActiveFile(String filePath) {
+    if (!_openFiles.containsKey(filePath)) return;
+    _activeFilePath = filePath;
+    _detailSection = DetailPanelSection.details;
+    notifyListeners();
+  }
+
+  void closeFile(String filePath) {
+    _openFiles.remove(filePath);
+    _openFilePaths.remove(filePath);
+
+    if (_activeFilePath == filePath) {
+      _activeFilePath =
+          _openFilePaths.isNotEmpty ? _openFilePaths.last : null;
+    }
+    notifyListeners();
+  }
+
+  void closeActiveFile() {
+    final path = _activeFilePath;
+    if (path != null) closeFile(path);
+  }
+
+  void showWorkspaceTab(WorkspaceTab tab) {
+    _activeFilePath = null;
+    _activeTab = tab;
+    notifyListeners();
+  }
+  void toggleDirectory(String directoryPath) {
+    if (_expandedDirectoryPaths.contains(directoryPath)) {
+      _expandedDirectoryPaths.remove(directoryPath);
+    } else {
+      _expandedDirectoryPaths.add(directoryPath);
+    }
+    notifyListeners();
+  }
+
+  Future<void> reloadProjectFiles() async {
+    final project = _selectedProject;
+    if (project == null) return;
+    await _loadProjectFiles(project.path);
+  }
+
+  Future<void> _loadProjectFiles(String projectPath) async {
+    _isLoadingFiles = true;
+    notifyListeners();
+
+    try {
+      _fileTree = await _filesService.loadFileTree(projectPath);
+      _expandedDirectoryPaths = _defaultExpandedPaths(projectPath, _fileTree);
+    } finally {
+      _isLoadingFiles = false;
+      notifyListeners();
+    }
+  }
+
+  Set<String> _defaultExpandedPaths(
+    String projectPath,
+    List<ProjectFileNode> nodes,
+  ) {
+    final expanded = <String>{};
+    const defaultOpen = {'lib', 'test', 'assets'};
+
+    for (final node in nodes) {
+      if (node.isDirectory && defaultOpen.contains(node.name)) {
+        expanded.add(node.path);
+      }
+    }
+
+    return expanded;
+  }
+
+  void setActiveTab(WorkspaceTab tab) {
+    showWorkspaceTab(tab);
+  }
+  void setDetailSection(DetailPanelSection section) {
+    _detailSection = section;
+    notifyListeners();
+  }
+
+  void clearError() {
+    _lastError = null;
+    notifyListeners();
+  }
+
+  Future<ProjectValidationResult> validateProjectPath(String path) {
+    return _validator.validate(path);
+  }
+
+  Future<Project?> addProject({
+    required String path,
+    String? name,
+    String description = '',
+    String goal = '',
+    String notes = '',
+  }) async {
+    _isAddingProject = true;
+    _lastError = null;
+    notifyListeners();
+
+    try {
+      final validation = await _validator.validate(path);
+      if (!validation.isValid) {
+        _lastError = validation.errors.map((e) => e.message).join('\n');
+        return null;
+      }
+
+      final projectId = _uuid.v4();
+      final now = DateTime.now();
+      final resolvedName = (name?.trim().isNotEmpty ?? false)
+          ? name!.trim()
+          : validation.projectName ?? path.split(RegExp(r'[/\\]')).last;
+
+      var project = Project(
+        id: projectId,
+        name: resolvedName,
+        path: path.trim(),
+        description: description.trim(),
+        goal: goal.trim(),
+        notes: notes.trim(),
+        addedAt: now,
+        platforms: validation.platforms,
+        flutterVersion: validation.sdkInfo?.flutterVersion,
+        dartVersion: validation.sdkInfo?.dartVersion,
+        dependencies: await _dependencyResolver.resolveProjectDependencies(
+          path.trim(),
+          globalMetadata: _globalPackageMetadata,
+        ),
+        status: ProjectStatus.active,
+        changeHistory: [],
+        widgets: const [],
+        documentationLinks: const [],
+        isFlutterProject: validation.isFlutterProject,
+        structureNotes: validation.structureNotes,
+        sdkAvailable: validation.sdkInfo?.allAvailable ?? false,
+      );
+
+      final initialRecord = _documentation.createInitialChangeRecord(project);
+      project = project.copyWith(changeHistory: [initialRecord]);
+
+      project = await _documentation.initializeDocumentation(project);
+      await _storage.saveProject(project);
+
+      _projects = [..._projects, project];
+      _selectedProject = project;
+      _activeTab = WorkspaceTab.overview;
+      await _loadProjectFiles(project.path);
+      await _resolveDependenciesForSelectedProject();
+      await _scanWidgetsForSelectedProject();
+      return project;
+    } catch (e) {
+      _lastError = 'Failed to add project: $e';
+      return null;
+    } finally {
+      _isAddingProject = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProject(Project project) async {
+    await _storage.saveProject(project);
+    _projects = _projects.map((p) => p.id == project.id ? project : p).toList();
+    if (_selectedProject?.id == project.id) {
+      _selectedProject = project;
+    }
+    notifyListeners();
+  }
+
+  Future<void> deleteProject(String projectId) async {
+    await _storage.deleteProject(projectId);
+    _projects = _projects.where((p) => p.id != projectId).toList();
+    if (_selectedProject?.id == projectId) {
+      _selectedProject = _projects.isNotEmpty ? _projects.first : null;
+      _clearOpenFiles();
+      if (_selectedProject != null) {
+        await _loadProjectFiles(_selectedProject!.path);
+      } else {
+        _fileTree = [];
+        _expandedDirectoryPaths = {};
+      }
+    }
+    notifyListeners();
+  }
+
+  Future<void> exportDocumentation() async {
+    final project = _selectedProject;
+    if (project == null) return;
+    await _documentation.exportDocumentation(project);
+  }
+
+  Future<void> refreshSelectedProject() async {
+    final project = _selectedProject;
+    if (project == null) return;
+
+    final validation = await _validator.validate(project.path);
+    if (!validation.isValid) {
+      _lastError = validation.errors.map((e) => e.message).join('\n');
+      notifyListeners();
+      return;
+    }
+
+    final updated = project.copyWith(
+      platforms: validation.platforms,
+      flutterVersion: validation.sdkInfo?.flutterVersion,
+      dartVersion: validation.sdkInfo?.dartVersion,
+      structureNotes: validation.structureNotes,
+      sdkAvailable: validation.sdkInfo?.allAvailable ?? false,
+    );
+
+    final record = ChangeRecord(
+      id: _uuid.v4(),
+      timestamp: DateTime.now(),
+      title: 'Project refreshed',
+      description: 'Metadata and dependencies were re-scanned.',
+      category: 'system',
+    );
+
+    await updateProject(
+      updated.copyWith(
+        changeHistory: [...updated.changeHistory, record],
+      ),
+    );
+
+    await _loadProjectFiles(project.path);
+    await _resolveDependenciesForSelectedProject();
+    await _scanWidgetsForSelectedProject();
+    await _refreshGitStatusForSelectedProject();
+  }
+
+  Future<void> refreshGitStatus({String? configuredGitLabBaseUrl}) async {
+    await _refreshGitStatusForSelectedProject(
+      configuredGitLabBaseUrl: configuredGitLabBaseUrl,
+    );
+  }
+
+  Future<List<GitCommitEntry>> loadGitFileHistory(String relativePath) async {
+    final project = _selectedProject;
+    if (project == null) return [];
+    return _gitService.getFileHistory(project.path, relativePath);
+  }
+
+  Future<List<GitCommitEntry>> loadGitLineHistory(
+    String relativePath,
+    int line,
+  ) async {
+    final project = _selectedProject;
+    if (project == null || line <= 0) return [];
+    return _gitService.getLineHistory(project.path, relativePath, line);
+  }
+
+  Future<List<GitCommitGraphRow>> loadGitProjectGraph() async {
+    final project = _selectedProject;
+    if (project == null) return [];
+    return _gitService.getProjectCommitGraph(project.path);
+  }
+
+  Future<List<GitCommitGraphRow>> loadGitFileGraph(String relativePath) async {
+    final project = _selectedProject;
+    if (project == null) return [];
+    return _gitService.getFileCommitGraph(project.path, relativePath);
+  }
+
+  Future<void> refreshDependencies() async {
+    await _resolveDependenciesForSelectedProject();
+  }
+
+  Future<void> refreshWidgets() async {
+    await _scanWidgetsForSelectedProject();
+  }
+
+  Future<void> _refreshGitStatusForSelectedProject({
+    String? configuredGitLabBaseUrl,
+  }) async {
+    final project = _selectedProject;
+    if (project == null) {
+      _gitRepositoryStatus = null;
+      notifyListeners();
+      return;
+    }
+
+    _isLoadingGit = true;
+    notifyListeners();
+
+    try {
+      _gitRepositoryStatus =
+          await _gitService.getRepositoryStatus(
+        project.path,
+        configuredGitLabBaseUrl: configuredGitLabBaseUrl,
+      );
+    } catch (e) {
+      _gitRepositoryStatus = GitRepositoryStatus.error('$e');
+    } finally {
+      _isLoadingGit = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateGlobalPackageMetadata(
+    GlobalPackageMetadata metadata,
+  ) async {
+    final saved = await _globalMetadataService.save(metadata);
+    _globalPackageMetadata = {
+      ..._globalPackageMetadata,
+      saved.packageName: saved,
+    };
+    notifyListeners();
+  }
+
+  Future<void> _resolveDependenciesForSelectedProject() async {
+    final project = _selectedProject;
+    if (project == null) return;
+
+    _isLoadingDependencies = true;
+    notifyListeners();
+
+    try {
+      _globalPackageMetadata = await _globalMetadataService.loadAll();
+      final dependencies = await _dependencyResolver.resolveProjectDependencies(
+        project.path,
+        globalMetadata: _globalPackageMetadata,
+      );
+
+      final updated = project.copyWith(dependencies: dependencies);
+      await _storage.saveProject(updated);
+      _projects =
+          _projects.map((p) => p.id == updated.id ? updated : p).toList();
+      if (_selectedProject?.id == updated.id) {
+        _selectedProject = updated;
+      }
+    } catch (e) {
+      _lastError = 'Failed to resolve dependencies: $e';
+    } finally {
+      _isLoadingDependencies = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _scanWidgetsForSelectedProject() async {
+    final project = _selectedProject;
+    if (project == null) return;
+
+    _isLoadingWidgets = true;
+    notifyListeners();
+
+    try {
+      final widgets = await _widgetAnalyzer.scanProject(project.path);
+      final updated = project.copyWith(widgets: widgets);
+      await _storage.saveProject(updated);
+      _projects =
+          _projects.map((p) => p.id == updated.id ? updated : p).toList();
+      if (_selectedProject?.id == updated.id) {
+        _selectedProject = updated;
+      }
+    } catch (e) {
+      _lastError = 'Failed to scan widgets: $e';
+    } finally {
+      _isLoadingWidgets = false;
+      notifyListeners();
+    }
+  }
+}
