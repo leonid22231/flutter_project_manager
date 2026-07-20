@@ -10,6 +10,7 @@ import 'package:project_manager/models/git_repository_status.dart';
 import 'package:project_manager/models/global_package_metadata.dart';
 import 'package:project_manager/models/opened_file.dart';
 import 'package:project_manager/models/project.dart';
+import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/models/project_file_node.dart';
 import 'package:project_manager/models/project_status.dart';
 import 'package:project_manager/models/validation_result.dart';
@@ -21,7 +22,10 @@ import 'package:project_manager/services/global_package_metadata_service.dart';
 import 'package:project_manager/services/project_files_service.dart';
 import 'package:project_manager/services/project_storage_service.dart';
 import 'package:project_manager/services/project_validator_service.dart';
-import 'package:project_manager/services/widget_analyzer_service.dart';
+import 'package:project_manager/services/settings_service.dart';
+import 'package:project_manager/services/cursor_cli_logger.dart';
+import 'package:project_manager/models/cursor_cli_settings.dart';
+import 'package:project_manager/services/analysis/widget_analysis_coordinator.dart';
 import 'package:uuid/uuid.dart';
 
 enum WorkspaceTab {
@@ -33,6 +37,7 @@ enum WorkspaceTab {
   gitlab,
   builds,
   analysis,
+  agent,
 }
 
 enum DetailPanelSection {
@@ -49,8 +54,9 @@ class ProjectManagerState extends ChangeNotifier {
     FileDocumentationService? fileDocumentation,
     DependencyResolverService? dependencyResolver,
     GlobalPackageMetadataService? globalPackageMetadata,
-    WidgetAnalyzerService? widgetAnalyzer,
+    WidgetAnalysisCoordinator? widgetAnalysisCoordinator,
     GitService? gitService,
+    SettingsService? settingsService,
   })  : _storage = storage ?? ProjectStorageService(),
         _validator = validator ?? ProjectValidatorService(),
         _documentation = documentation ?? DocumentationService(),
@@ -59,8 +65,10 @@ class ProjectManagerState extends ChangeNotifier {
         _dependencyResolver = dependencyResolver ?? DependencyResolverService(),
         _globalMetadataService =
             globalPackageMetadata ?? GlobalPackageMetadataService(),
-        _widgetAnalyzer = widgetAnalyzer ?? WidgetAnalyzerService(),
-        _gitService = gitService ?? GitService();
+        _widgetAnalysisCoordinator =
+            widgetAnalysisCoordinator ?? WidgetAnalysisCoordinator(),
+        _gitService = gitService ?? GitService(),
+        _settingsService = settingsService ?? SettingsService();
 
   final ProjectStorageService _storage;
   final ProjectValidatorService _validator;
@@ -69,8 +77,9 @@ class ProjectManagerState extends ChangeNotifier {
   final FileDocumentationService _fileDocumentation;
   final DependencyResolverService _dependencyResolver;
   final GlobalPackageMetadataService _globalMetadataService;
-  final WidgetAnalyzerService _widgetAnalyzer;
+  final WidgetAnalysisCoordinator _widgetAnalysisCoordinator;
   final GitService _gitService;
+  final SettingsService _settingsService;
   static const _uuid = Uuid();
 
   List<Project> _projects = [];
@@ -89,6 +98,8 @@ class ProjectManagerState extends ChangeNotifier {
   bool _isLoadingFiles = false;
   bool _isLoadingDependencies = false;
   bool _isLoadingWidgets = false;
+  bool _isEnrichingWidgetsWithCursor = false;
+  bool _widgetsEnrichedByCursor = false;
   bool _isLoadingGit = false;
   bool _isAddingProject = false;
   String? _lastError;
@@ -113,6 +124,8 @@ class ProjectManagerState extends ChangeNotifier {
   bool get isLoadingFiles => _isLoadingFiles;
   bool get isLoadingDependencies => _isLoadingDependencies;
   bool get isLoadingWidgets => _isLoadingWidgets;
+  bool get isEnrichingWidgetsWithCursor => _isEnrichingWidgetsWithCursor;
+  bool get widgetsEnrichedByCursor => _widgetsEnrichedByCursor;
   bool get isLoadingGit => _isLoadingGit;
   bool get isAddingProject => _isAddingProject;
   String? get lastError => _lastError;
@@ -511,8 +524,8 @@ class ProjectManagerState extends ChangeNotifier {
     await _resolveDependenciesForSelectedProject();
   }
 
-  Future<void> refreshWidgets() async {
-    await _scanWidgetsForSelectedProject();
+  Future<void> refreshWidgets({CursorCliSettings? cursorSettings}) async {
+    await _scanWidgetsForSelectedProject(cursorSettings: cursorSettings);
   }
 
   Future<void> _refreshGitStatusForSelectedProject({
@@ -582,27 +595,91 @@ class ProjectManagerState extends ChangeNotifier {
     }
   }
 
-  Future<void> _scanWidgetsForSelectedProject() async {
+  Future<void> _scanWidgetsForSelectedProject({
+    CursorCliSettings? cursorSettings,
+  }) async {
     final project = _selectedProject;
     if (project == null) return;
 
     _isLoadingWidgets = true;
+    _widgetsEnrichedByCursor = false;
     notifyListeners();
 
     try {
-      final widgets = await _widgetAnalyzer.scanProject(project.path);
-      final updated = project.copyWith(widgets: widgets);
-      await _storage.saveProject(updated);
-      _projects =
-          _projects.map((p) => p.id == updated.id ? updated : p).toList();
-      if (_selectedProject?.id == updated.id) {
-        _selectedProject = updated;
+      final resolvedCursorSettings =
+          cursorSettings ?? await _settingsService.loadCursorCliSettings();
+      final staticResult =
+          await _widgetAnalysisCoordinator.analyzeStatic(project.path);
+      await _saveWidgets(staticResult.widgets);
+      _widgetsEnrichedByCursor = staticResult.enrichedByCursor;
+
+      if (resolvedCursorSettings.enabled) {
+        _enrichWidgetsWithCursor(
+          project.path,
+          resolvedCursorSettings,
+          staticResult.widgets,
+        );
       }
     } catch (e) {
       _lastError = 'Failed to scan widgets: $e';
     } finally {
       _isLoadingWidgets = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _enrichWidgetsWithCursor(
+    String projectPath,
+    CursorCliSettings settings,
+    List<WidgetEntry> baseline,
+  ) async {
+    _isEnrichingWidgetsWithCursor = true;
+    CursorCliLogger.instance.info(
+      'Background widget enrichment scheduled.',
+      source: 'state',
+      logRoot: projectPath,
+      data: {'widgets': baseline.length},
+    );
+    notifyListeners();
+
+    try {
+      final enriched = await _widgetAnalysisCoordinator.enrichWithCursor(
+        projectRoot: projectPath,
+        settings: settings,
+        baseline: baseline,
+      );
+      if (_selectedProject?.path != projectPath) {
+        CursorCliLogger.instance.warn(
+          'Enrichment result discarded (project changed).',
+          source: 'state',
+          logRoot: projectPath,
+        );
+        return;
+      }
+      await _saveWidgets(enriched.widgets);
+      _widgetsEnrichedByCursor = enriched.enrichedByCursor;
+    } catch (e) {
+      _lastError = 'Cursor widget enrichment failed: $e';
+      CursorCliLogger.instance.error(
+        'Background enrichment failed: $e',
+        source: 'state',
+        logRoot: projectPath,
+      );
+    } finally {
+      _isEnrichingWidgetsWithCursor = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _saveWidgets(List<WidgetEntry> widgets) async {
+    final project = _selectedProject;
+    if (project == null) return;
+
+    final updated = project.copyWith(widgets: widgets);
+    await _storage.saveProject(updated);
+    _projects = _projects.map((p) => p.id == updated.id ? updated : p).toList();
+    if (_selectedProject?.id == updated.id) {
+      _selectedProject = updated;
     }
   }
 }

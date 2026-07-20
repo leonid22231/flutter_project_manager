@@ -20,6 +20,10 @@ void main() {
       parseVersionFromBuildName('25.0.0-1782982194.apk'),
       '25.0.0-1782982194',
     );
+    expect(
+      parseVersionFromBuildName('fresh-dev_windows_25.0.0_1783671178.zip'),
+      '25.0.0-1783671178',
+    );
   });
 
   test('parseVersionFromBuildNames prefers release artifact filenames', () {

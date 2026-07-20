@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/state/project_manager_state.dart';
@@ -91,7 +92,23 @@ class FileWidgetsDocSection extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            DocCodeChip(text: usage.snippet),
+                            Text(
+                              '${usage.filePath}:${usage.line}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: IdeaColors.accent,
+                                fontFamily: 'Consolas',
+                              ),
+                            ),
+                            if (usage.positionalArgs.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              ...usage.positionalArgs.map(
+                                (arg) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: DocCodeChip(text: arg),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

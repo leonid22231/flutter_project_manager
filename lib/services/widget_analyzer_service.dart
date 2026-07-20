@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/core/constants/flutter_widget_names.dart';
+import 'package:project_manager/core/utils/dart_constructor_parser.dart';
+import 'package:project_manager/models/widget_constructor_param.dart';
 import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/models/widget_origin.dart';
 import 'package:project_manager/models/widget_usage_entry.dart';
@@ -24,7 +26,7 @@ class _WidgetDefinitionDraft {
   final String filePath;
   final int line;
   final String superType;
-  final List<String> constructorParams;
+  final List<WidgetConstructorParam> constructorParams;
   final String? description;
   final bool isConstConstructor;
 }
@@ -59,6 +61,7 @@ class WidgetAnalyzerService {
   Future<List<WidgetEntry>> scanProject(String projectRoot) async {
     final dartFiles = await _collectDartFiles(projectRoot);
     final definitions = <String, _WidgetDefinitionDraft>{};
+    final constructorRanges = <String, List<({String file, int start, int end})>>{};
     final stateClasses = <String, String>{};
     final usagesByName = <String, List<WidgetUsageEntry>>{};
 
@@ -68,6 +71,17 @@ class WidgetAnalyzerService {
           p.relative(file.path, from: projectRoot).replaceAll(r'\', '/');
       _collectStateClasses(content, stateClasses);
       _collectDefinitions(content, relativePath, definitions);
+      for (final definition in definitions.values) {
+        if (definition.filePath != relativePath) continue;
+        final range = DartConstructorParser.constructorLineRange(
+          content,
+          definition.name,
+        );
+        if (range == null) continue;
+        constructorRanges
+            .putIfAbsent(definition.name, () => [])
+            .add((file: relativePath, start: range.startLine, end: range.endLine));
+      }
     }
 
     for (final file in dartFiles) {
@@ -78,6 +92,7 @@ class WidgetAnalyzerService {
         content: content,
         relativePath: relativePath,
         knownCustomWidgets: definitions.keys.toSet(),
+        constructorRanges: constructorRanges,
         usagesByName: usagesByName,
       );
     }
@@ -144,7 +159,8 @@ class WidgetAnalyzerService {
       if (!_isWidgetSuperType(superType)) continue;
 
       final line = _lineNumberAt(content, match.start);
-      final constructorParams = _extractConstructorParams(content, name);
+      final constructorParams =
+          DartConstructorParser.parse(content, name);
       final description = _extractDocComment(lines, line);
       final isConst = _hasConstConstructor(content, name);
 
@@ -164,6 +180,8 @@ class WidgetAnalyzerService {
     required String content,
     required String relativePath,
     required Set<String> knownCustomWidgets,
+    required Map<String, List<({String file, int start, int end})>>
+        constructorRanges,
     required Map<String, List<WidgetUsageEntry>> usagesByName,
   }) {
     for (final match in _widgetCallPattern.allMatches(content)) {
@@ -181,14 +199,20 @@ class WidgetAnalyzerService {
       if (parsed == null) continue;
 
       final line = _lineNumberAt(content, match.start);
+      if (_isConstructorUsage(
+        widgetName: name,
+        filePath: relativePath,
+        line: line,
+        constructorRanges: constructorRanges,
+      )) {
+        continue;
+      }
+
       final enclosing = _findEnclosingName(content, match.start);
-      final snippet = parsed.snippet.trim();
-      if (snippet.isEmpty) continue;
 
       final usage = WidgetUsageEntry(
         filePath: relativePath,
         line: line,
-        snippet: snippet,
         enclosingName: enclosing,
         positionalArgs: parsed.positional,
         namedArgs: parsed.named,
@@ -196,6 +220,25 @@ class WidgetAnalyzerService {
 
       usagesByName.putIfAbsent(name, () => []).add(usage);
     }
+  }
+
+  bool _isConstructorUsage({
+    required String widgetName,
+    required String filePath,
+    required int line,
+    required Map<String, List<({String file, int start, int end})>>
+        constructorRanges,
+  }) {
+    final ranges = constructorRanges[widgetName];
+    if (ranges == null) return false;
+    for (final range in ranges) {
+      if (range.file == filePath &&
+          line >= range.start &&
+          line <= range.end) {
+        return true;
+      }
+    }
+    return false;
   }
 
   WidgetEntry _toEntry({
@@ -236,44 +279,6 @@ class WidgetAnalyzerService {
         base == 'SingleChildRenderObjectWidget' ||
         base == 'MultiChildRenderObjectWidget' ||
         base == 'SlottedRenderObjectWidget';
-  }
-
-  List<String> _extractConstructorParams(String content, String className) {
-    final pattern = RegExp(
-      '(?:const\\s+)?$className\\s*\\(\\s*\\{([^}]*)\\}',
-      dotAll: true,
-    );
-    final match = pattern.firstMatch(content);
-    if (match == null) {
-      final positional = RegExp(
-        '(?:const\\s+)?$className\\s*\\(([^)]*)\\)',
-        dotAll: true,
-      ).firstMatch(content);
-      if (positional == null) return const [];
-      return positional
-          .group(1)!
-          .split(',')
-          .map((part) => part.trim())
-          .where((part) => part.isNotEmpty)
-          .toList();
-    }
-
-    return match
-        .group(1)!
-        .split(',')
-        .map((part) => _normalizeParamName(part))
-        .where((part) => part.isNotEmpty)
-        .toList();
-  }
-
-  String _normalizeParamName(String part) {
-    var value = part.trim();
-    value = value.replaceFirst(RegExp(r'^required\s+'), '');
-    value = value.replaceFirst(RegExp(r'^this\.'), '');
-    if (value.contains(':')) {
-      value = value.split(':').first.trim();
-    }
-    return value;
   }
 
   bool _hasConstConstructor(String content, String className) {

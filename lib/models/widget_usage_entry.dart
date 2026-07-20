@@ -2,7 +2,7 @@ class WidgetUsageEntry {
   const WidgetUsageEntry({
     required this.filePath,
     required this.line,
-    required this.snippet,
+    this.snippet = '',
     this.enclosingName,
     this.positionalArgs = const [],
     this.namedArgs = const {},

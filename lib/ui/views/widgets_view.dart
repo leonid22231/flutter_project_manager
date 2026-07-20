@@ -2,16 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
+import 'package:project_manager/models/widget_constructor_param.dart';
 import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/models/widget_origin.dart';
 import 'package:project_manager/models/widget_usage_entry.dart';
+import 'package:project_manager/services/cursor_cli_logger.dart';
+import 'package:project_manager/state/app_settings_state.dart';
 import 'package:project_manager/state/project_manager_state.dart';
 import 'package:project_manager/ui/widgets/file_documentation/doc_ui_primitives.dart';
 import 'package:provider/provider.dart';
 
 enum _WidgetScope { project, file }
-
-enum _WidgetOriginFilter { all, custom, library }
 
 class WidgetsView extends StatefulWidget {
   const WidgetsView({super.key});
@@ -23,9 +24,35 @@ class WidgetsView extends StatefulWidget {
 class _WidgetsViewState extends State<WidgetsView> {
   final _searchController = TextEditingController();
   _WidgetScope _scope = _WidgetScope.project;
-  _WidgetOriginFilter _originFilter = _WidgetOriginFilter.all;
   String? _selectedFile;
   String? _selectedWidgetId;
+  bool _legacyRescanTriggered = false;
+  var _showCursorLog = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _rescanIfLegacyParams());
+  }
+
+  void _rescanIfLegacyParams() {
+    if (_legacyRescanTriggered || !mounted) return;
+    final project = context.read<ProjectManagerState>().selectedProject;
+    if (project == null) return;
+
+    final hasLegacyBraces = project.widgets.any(
+      (w) => w.constructorParams.any(
+        (p) => p.name == '{' || p.name == '}',
+      ),
+    );
+    if (!hasLegacyBraces) return;
+
+    _legacyRescanTriggered = true;
+    final settings = context.read<AppSettingsState>().cursorCliSettings;
+    context.read<ProjectManagerState>().refreshWidgets(
+          cursorSettings: settings,
+        );
+  }
 
   @override
   void dispose() {
@@ -36,12 +63,16 @@ class _WidgetsViewState extends State<WidgetsView> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<ProjectManagerState>();
+    final appSettings = context.watch<AppSettingsState>();
     final project = state.selectedProject;
     final l10n = context.l10n;
 
     if (project == null) return const SizedBox.shrink();
 
-    if (state.isLoadingWidgets && project.widgets.isEmpty) {
+    final customWidgets =
+        project.widgets.where((w) => w.origin == WidgetOrigin.custom);
+
+    if (state.isLoadingWidgets && customWidgets.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -54,8 +85,8 @@ class _WidgetsViewState extends State<WidgetsView> {
       );
     }
 
-    final fileOptions = _collectFileOptions(project.widgets);
-    final filtered = _filterWidgets(project.widgets);
+    final fileOptions = _collectFileOptions(customWidgets);
+    final filtered = _filterWidgets(customWidgets);
     final selected = filtered.cast<WidgetEntry?>().firstWhere(
           (widget) => widget?.id == _selectedWidgetId,
           orElse: () => filtered.isNotEmpty ? filtered.first : null,
@@ -87,12 +118,20 @@ class _WidgetsViewState extends State<WidgetsView> {
                 _Toolbar(
                   searchController: _searchController,
                   onSearchChanged: (_) => setState(() {}),
-                  onRefresh: state.isLoadingWidgets ? null : state.refreshWidgets,
+                  onRefresh: state.isLoadingWidgets
+                      ? null
+                      : () => state.refreshWidgets(
+                            cursorSettings: appSettings.cursorCliSettings,
+                          ),
                   isRefreshing: state.isLoadingWidgets,
-                  summary: l10n.widgetsSummary(
-                    project.widgets.length,
-                    project.widgets.where((w) => w.origin == WidgetOrigin.custom).length,
-                    project.widgets.fold<int>(0, (sum, w) => sum + w.usageCount),
+                  subtitle: state.isEnrichingWidgetsWithCursor
+                      ? l10n.widgetsEnrichingWithCursor
+                      : state.widgetsEnrichedByCursor
+                          ? l10n.widgetsEnrichedByCursor
+                          : null,
+                  summary: l10n.widgetsCustomSummary(
+                    customWidgets.length,
+                    customWidgets.fold<int>(0, (sum, w) => sum + w.usageCount),
                   ),
                 ),
                 Padding(
@@ -112,14 +151,6 @@ class _WidgetsViewState extends State<WidgetsView> {
                         selected: _scope == _WidgetScope.file,
                         onSelected: (_) =>
                             setState(() => _scope = _WidgetScope.file),
-                      ),
-                      ..._WidgetOriginFilter.values.map(
-                        (filter) => FilterChip(
-                          label: Text(_originFilterLabel(l10n, filter)),
-                          selected: _originFilter == filter,
-                          onSelected: (_) =>
-                              setState(() => _originFilter = filter),
-                        ),
                       ),
                     ],
                   ),
@@ -170,6 +201,10 @@ class _WidgetsViewState extends State<WidgetsView> {
                           },
                         ),
                 ),
+                _CursorCliLogPanel(
+                  expanded: _showCursorLog,
+                  onToggle: () => setState(() => _showCursorLog = !_showCursorLog),
+                ),
               ],
             ),
           ),
@@ -194,21 +229,13 @@ class _WidgetsViewState extends State<WidgetsView> {
     );
   }
 
-  List<WidgetEntry> _filterWidgets(List<WidgetEntry> widgets) {
+  List<WidgetEntry> _filterWidgets(Iterable<WidgetEntry> widgets) {
     final query = _searchController.text.trim().toLowerCase();
     Iterable<WidgetEntry> result = widgets;
 
     if (_scope == _WidgetScope.file && _selectedFile != null) {
       result = result.forRelativeFile(_selectedFile!);
     }
-
-    result = switch (_originFilter) {
-      _WidgetOriginFilter.custom =>
-        result.where((w) => w.origin == WidgetOrigin.custom),
-      _WidgetOriginFilter.library =>
-        result.where((w) => w.origin == WidgetOrigin.library),
-      _WidgetOriginFilter.all => result,
-    };
 
     if (query.isNotEmpty) {
       result = result.where(
@@ -218,15 +245,23 @@ class _WidgetsViewState extends State<WidgetsView> {
             widget.usages.any(
               (usage) =>
                   usage.filePath.toLowerCase().contains(query) ||
-                  usage.snippet.toLowerCase().contains(query),
+                  usage.positionalArgs.any(
+                    (arg) => arg.toLowerCase().contains(query),
+                  ),
             ),
       );
     }
 
-    return result.toList();
+    final sorted = result.toList()
+      ..sort((a, b) {
+        final byUsage = b.usageCount.compareTo(a.usageCount);
+        if (byUsage != 0) return byUsage;
+        return a.name.compareTo(b.name);
+      });
+    return sorted;
   }
 
-  List<String> _collectFileOptions(List<WidgetEntry> widgets) {
+  List<String> _collectFileOptions(Iterable<WidgetEntry> widgets) {
     final files = <String>{};
     for (final widget in widgets) {
       if (widget.filePath.isNotEmpty) files.add(widget.filePath);
@@ -234,19 +269,11 @@ class _WidgetsViewState extends State<WidgetsView> {
         files.add(usage.filePath);
       }
     }
-    final sorted = files.toList()..sort();
-    if (_selectedFile == null && sorted.isNotEmpty) {
-      _selectedFile = sorted.first;
+    final sortedFiles = files.toList()..sort();
+    if (_selectedFile == null && sortedFiles.isNotEmpty) {
+      _selectedFile = sortedFiles.first;
     }
-    return sorted;
-  }
-
-  String _originFilterLabel(AppLocalizations l10n, _WidgetOriginFilter filter) {
-    return switch (filter) {
-      _WidgetOriginFilter.all => l10n.widgetsFilterAll,
-      _WidgetOriginFilter.custom => l10n.widgetsFilterCustom,
-      _WidgetOriginFilter.library => l10n.widgetsFilterLibrary,
-    };
+    return sortedFiles;
   }
 }
 
@@ -261,6 +288,7 @@ class _Toolbar extends StatelessWidget {
     required this.onRefresh,
     required this.isRefreshing,
     required this.summary,
+    this.subtitle,
   });
 
   final TextEditingController searchController;
@@ -268,6 +296,7 @@ class _Toolbar extends StatelessWidget {
   final VoidCallback? onRefresh;
   final bool isRefreshing;
   final String summary;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -304,6 +333,15 @@ class _Toolbar extends StatelessWidget {
               ),
             ],
           ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: IdeaColors.accent,
+                  ),
+            ),
+          ],
           const SizedBox(height: 8),
           TextField(
             controller: searchController,
@@ -344,9 +382,7 @@ class _WidgetListTile extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                widget.origin == WidgetOrigin.custom
-                    ? Icons.widgets_outlined
-                    : Icons.extension_outlined,
+                Icons.widgets_outlined,
                 size: 16,
                 color: isSelected ? IdeaColors.accent : IdeaColors.textSecondary,
               ),
@@ -484,11 +520,9 @@ class _WidgetDetailsPanel extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(l10n.widgetsConstructorParams, style: _labelStyle),
                     const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: widget.constructorParams
-                          .map((param) => DocCodeChip(text: param))
+                    _ConstructorParamsTable(
+                      params: widget.constructorParams
+                          .where((p) => p.name != '{' && p.name != '}')
                           .toList(),
                     ),
                   ],
@@ -634,52 +668,17 @@ class _UsageTile extends StatelessWidget {
                   style: Theme.of(context).textTheme.labelSmall,
                 ),
               ],
-              const SizedBox(height: 6),
-              DocCodeChip(text: usage.snippet),
               if (usage.positionalArgs.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Text(
                   l10n.widgetsPositionalArgs,
                   style: _WidgetDetailsPanel._labelStyle,
                 ),
                 const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: usage.positionalArgs
-                      .map((arg) => DocCodeChip(text: arg))
-                      .toList(),
-                ),
-              ],
-              if (usage.namedArgs.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  l10n.widgetsNamedArgs,
-                  style: _WidgetDetailsPanel._labelStyle,
-                ),
-                const SizedBox(height: 4),
-                ...usage.namedArgs.entries.map(
-                  (entry) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 110,
-                          child: Text(
-                            entry.key,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: IdeaColors.textSecondary,
-                              fontFamily: 'Consolas',
-                            ),
-                          ),
-                        ),
-                        Expanded(
-                          child: DocCodeChip(text: entry.value),
-                        ),
-                      ],
-                    ),
+                ...usage.positionalArgs.map(
+                  (arg) => Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: DocCodeChip(text: arg),
                   ),
                 ),
               ],
@@ -687,6 +686,159 @@ class _UsageTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ConstructorParamsTable extends StatelessWidget {
+  const _ConstructorParamsTable({required this.params});
+
+  final List<WidgetConstructorParam> params;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    if (params.isEmpty) {
+      return Text(
+        l10n.notAvailable,
+        style: Theme.of(context).textTheme.bodySmall,
+      );
+    }
+    return Column(
+      children: params.map((param) {
+        final kindLabel = param.kind == WidgetParamKind.positional
+            ? l10n.widgetsParamPositional
+            : l10n.widgetsParamNamed;
+        final requiredLabel = param.isRequired
+            ? l10n.widgetsParamRequired
+            : l10n.widgetsParamOptional;
+        final defaultSuffix = param.defaultValue != null
+            ? ' = ${param.defaultValue}'
+            : '';
+        final typeLabel = (param.type != null && param.type!.isNotEmpty)
+            ? param.type!
+            : l10n.notAvailable;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 110,
+                child: Text(
+                  '${param.name}$defaultSuffix',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'Consolas',
+                    color: IdeaColors.textPrimary,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 100,
+                child: DocCodeChip(text: typeLabel),
+              ),
+              const SizedBox(width: 8),
+              DocStatusBadge(label: kindLabel, color: IdeaColors.accent),
+              const SizedBox(width: 4),
+              DocStatusBadge(
+                label: requiredLabel,
+                color: param.isRequired ? IdeaColors.warning : IdeaColors.success,
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _CursorCliLogPanel extends StatelessWidget {
+  const _CursorCliLogPanel({
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return ListenableBuilder(
+      listenable: CursorCliLogger.instance,
+      builder: (context, _) {
+        final entries = CursorCliLogger.instance.recentEntries.take(30).toList();
+        return Material(
+          color: IdeaColors.toolbar,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                onTap: onToggle,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.terminal, size: 14, color: IdeaColors.accent),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          l10n.widgetsCursorCliLog,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        expanded ? Icons.expand_more : Icons.expand_less,
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (expanded)
+                SizedBox(
+                  height: 140,
+                  child: entries.isEmpty
+                      ? Center(
+                          child: Text(
+                            l10n.widgetsCursorCliLogEmpty,
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                          itemCount: entries.length,
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            final color = switch (entry.level) {
+                              'ERROR' => IdeaColors.warning,
+                              'WARN' => IdeaColors.warning,
+                              _ => IdeaColors.textSecondary,
+                            };
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                entry.format(),
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontFamily: 'Consolas',
+                                  color: color,
+                                  height: 1.3,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

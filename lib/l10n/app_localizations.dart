@@ -77,7 +77,8 @@ class AppLocalizations {
   String get tabMedia => _s('Media', 'Медиа');
   String get tabGitlab => _s('Git / GitLab', 'Git / GitLab');
   String get tabBuilds => _s('Builds', 'Сборки');
-  String get tabAnalysis => _s('Analysis (future)', 'Анализ (скоро)');
+  String get tabAnalysis => _s('Analysis', 'Анализ');
+  String get tabAgent => _s('Agent', 'Агент');
 
   // Detail panel sections
   String get sectionDetails => _s('Details', 'Детали');
@@ -227,7 +228,7 @@ class AppLocalizations {
         'dependencies' => _s('Dependencies', 'Зависимости'),
         'widgets' => _s('Widgets', 'Виджеты'),
         'changeNotes' => _s('Change Notes', 'Заметки об изменениях'),
-        'codeAnalysis' => _s('Code Analysis (future)', 'Анализ кода (скоро)'),
+        'codeAnalysis' => _s('Project Analysis', 'Анализ проекта'),
         _ => key,
       };
 
@@ -270,6 +271,11 @@ class AppLocalizations {
   String get openInVsCodeFailed => _s(
         'Could not launch VS Code. Make sure the code command is available in PATH.',
         'Не удалось открыть VS Code. Убедитесь, что команда code доступна в PATH.',
+      );
+  String get openInCursor => _s('Open in Cursor', 'Открыть в Cursor');
+  String get openInCursorFailed => _s(
+        'Could not launch Cursor. Make sure the cursor command is available in PATH.',
+        'Не удалось открыть Cursor. Убедитесь, что команда cursor доступна в PATH.',
       );
   String get openOnPubDev => _s('Open on pub.dev', 'Открыть на pub.dev');
   String get openRepository => _s('Open repository', 'Открыть репозиторий');
@@ -412,6 +418,10 @@ class AppLocalizations {
         '$total widgets · $custom custom · $usages usages',
         '$total виджетов · $custom своих · $usages использований',
       );
+  String widgetsCustomSummary(int count, int usages) => _s(
+        '$count custom widgets · $usages usages',
+        '$count своих виджетов · $usages использований',
+      );
 
   // Media
   String get loadingMedia =>
@@ -489,6 +499,10 @@ class AppLocalizations {
   String buildsSummary(int shown, int total) => _s(
         '$shown of $total build configurations',
         '$shown из $total конфигураций сборки',
+      );
+  String get buildsStageBuildOnly => _s(
+        'Build stage only',
+        'Только стадия build',
       );
   String get buildsNoVscodeConfigs => _s(
         'No .vscode/tasks.json found. Showing default Flutter build commands.',
@@ -614,6 +628,20 @@ class AppLocalizations {
       _s('Download artifacts', 'Скачать артефакты');
   String get buildsLoadingGitLabBuilds =>
       _s('Loading GitLab CI builds...', 'Загрузка сборок GitLab CI...');
+  String buildsHistoryLoadingCountdown(int seconds) => _s(
+        'Loading GitLab CI builds... ~$seconds sec left',
+        'Загрузка сборок GitLab CI... ≈ $seconds с',
+      );
+  String buildsHistoryLoadingCountdownShort(int seconds) =>
+      _s('~$seconds s', '≈ $seconds с');
+  String buildsHistoryLoadingElapsed(int seconds) => _s(
+        'Loading GitLab CI builds... $seconds s',
+        'Загрузка сборок GitLab CI... $seconds с',
+      );
+  String buildsHistoryLoadingElapsedShort(int seconds) =>
+      _s('$seconds s', '$seconds с');
+  String get buildsHistoryLoadingAlmostDone =>
+      _s('Almost done...', 'Почти готово...');
   String get buildsGitLabBuildsHint => _s(
         'Connect GitLab in Settings and use a GitLab remote to load CI builds.',
         'Подключите GitLab в настройках и используйте GitLab remote для загрузки CI-сборок.',
@@ -637,6 +665,16 @@ class AppLocalizations {
   String get buildsPageConfigurations =>
       _s('Configurations', 'Конфигурации');
   String get buildsPageHistory => _s('Build history', 'История сборок');
+  String get buildsHistoryLoadMore => _s('Load more', 'Загрузить ещё');
+  String get buildsHistoryLoadingMore =>
+      _s('Loading more builds...', 'Загрузка сборок...');
+  String buildsHistoryPageInfo(int page, int total) => _s(
+        'Page $page of $total',
+        'Страница $page из $total',
+      );
+  String get buildsHistoryPreviousPage =>
+      _s('Previous page', 'Предыдущая страница');
+  String get buildsHistoryNextPage => _s('Next page', 'Следующая страница');
 
   String get widgetsLabelType => _s('Type', 'Тип');
   String get widgetsLabelUsages => _s('Usages', 'Использования');
@@ -653,21 +691,170 @@ class AppLocalizations {
   String get widgetsPositionalArgs =>
       _s('Positional args', 'Позиционные аргументы');
   String get widgetsNamedArgs => _s('Named args', 'Именованные аргументы');
+  String get widgetsParamPositional => _s('positional', 'позиционный');
+  String get widgetsParamNamed => _s('named', 'именованный');
+  String get widgetsParamRequired => _s('required', 'обязательный');
+  String get widgetsParamOptional => _s('optional', 'необязательный');
+  String get widgetsEnrichingWithCursor =>
+      _s('Enriching with Cursor CLI...', 'Обогащение через Cursor CLI...');
+  String get widgetsEnrichedByCursor =>
+      _s('Enriched by Cursor', 'Обогащено Cursor');
+  String get widgetsCursorCliLog => _s('Cursor CLI log', 'Лог Cursor CLI');
+  String get widgetsCursorCliLogEmpty =>
+      _s('No Cursor CLI activity yet.', 'Активности Cursor CLI пока нет.');
   String widgetsRecorded(int count) => _s(
         '$count widget(s) recorded',
         _ru ? 'Записано виджетов: $count' : '$count widget(s) recorded',
       );
 
-  // Analysis placeholder
-  String get codeAnalysis => _s('Code Analysis', 'Анализ кода');
+  // Analysis
+  String get codeAnalysis => _s('Project Analysis', 'Анализ проекта');
   String codeAnalysisHint(String projectName) => _s(
-        'Automated code analysis will be added in a future release. '
-            'Storage directories for analysis artifacts and agent workflow '
-            'are already prepared for project "$projectName".',
-        'Автоматический анализ кода будет добавлен в будущих версиях. '
-            'Каталоги для артефактов анализа и agent workflow '
-            'уже подготовлены для проекта «$projectName».',
+        'Ask questions about project "$projectName" using aggregated context '
+            'and Cursor Agent CLI.',
+        'Задавайте вопросы о проекте «$projectName» на основе собранного '
+            'контекста и Cursor Agent CLI.',
       );
+  String get analysisContextTitle =>
+      _s('Project context file', 'Файл контекста проекта');
+  String get analysisContextBuilding =>
+      _s('Building project context…', 'Сборка контекста проекта…');
+  String analysisContextReady(String date, String size) => _s(
+        'Updated $date · $size · .ai/project-context.json',
+        'Обновлён $date · $size · .ai/project-context.json',
+      );
+  String get analysisContextMissing => _s(
+        'Context file not generated yet.',
+        'Файл контекста ещё не создан.',
+      );
+  String get analysisRegenerateContext =>
+      _s('Regenerate context', 'Пересобрать контекст');
+  String get analysisAskPlaceholder =>
+      _s('Ask about architecture, dependencies, widgets…', 'Спросите об архитектуре, зависимостях, виджетах…');
+  String get analysisAskButton => _s('Ask', 'Спросить');
+  String get analysisAsking =>
+      _s('Analyzing…', 'Анализ…');
+  String get analysisCursorDisabled => _s(
+        'Enable Cursor CLI in settings to ask questions.',
+        'Включите Cursor CLI в настройках, чтобы задавать вопросы.',
+      );
+  String analysisWelcome(String projectName) => _s(
+        'A full project context file is built from metadata, dependencies, '
+            'widgets, media, git, and builds. Ask Cursor Agent anything about '
+            '«$projectName».',
+        'Создаётся полный файл контекста из метаданных, зависимостей, '
+            'виджетов, медиа, git и сборок. Задайте Cursor Agent любой вопрос '
+            'о «$projectName».',
+      );
+  String get analysisSuggestionArchitecture =>
+      _s('How is the app structured?', 'Как устроено приложение?');
+  String get analysisSuggestionDependencies =>
+      _s('Which packages need updates?', 'Какие пакеты нужно обновить?');
+  String get analysisSuggestionWidgets =>
+      _s('What are the main custom widgets?', 'Какие основные кастомные виджеты?');
+  String get analysisSuggestionBuilds =>
+      _s('How are release builds configured?', 'Как настроены release-сборки?');
+  String get analysisReasoningTitle =>
+      _s('Agent reasoning', 'Размышление агента');
+  String get analysisReasoningEmpty =>
+      _s('No steps yet…', 'Шагов пока нет…');
+  String get analysisStreaming =>
+      _s('Generating answer…', 'Формирование ответа…');
+
+  // Agent tab
+  String get agentSectionIdentity => _s('Identity', 'Личность');
+  String get agentSectionSkills => _s('Skills', 'Навыки');
+  String get agentSectionSelfAnalysis =>
+      _s('Self-analysis', 'Самоанализ');
+  String get agentSectionInstructions =>
+      _s('Instructions', 'Инструкции');
+  String get agentSectionMemory => _s('Memory', 'Память');
+  String get agentSectionKnowledge =>
+      _s('Knowledge base', 'База знаний');
+  String get agentSectionAiFolder => _s('.ai folder', 'Папка .ai');
+  String get agentSectionPrompt => _s('System prompt', 'Системный промпт');
+  String get agentNameLabel => _s('Agent name', 'Имя агента');
+  String get agentSkillsLabel => _s('Skills', 'Навыки');
+  String get agentCapabilitiesLabel =>
+      _s('Capabilities', 'Возможности');
+  String get agentLimitationsLabel =>
+      _s('Limitations', 'Ограничения');
+  String get agentSelfAnalysisLabel =>
+      _s('Self-analysis report', 'Отчёт самоанализа');
+  String get agentRunSelfAnalysis =>
+      _s('Analyze myself', 'Проанализировать себя');
+  String get agentSelfAnalysisProgressTitle =>
+      _s('Self-analysis log', 'Лог самоанализа');
+  String get agentSelfAnalysisSucceeded =>
+      _s('Self-analysis saved to profile.', 'Самоанализ сохранён в профиль.');
+  String get agentSelfAnalysisFailed =>
+      _s('Self-analysis failed. See log for details.', 'Самоанализ не удался. Смотрите лог.');
+  String get agentSelfAnalysisRawOutputLabel =>
+      _s('Raw agent output', 'Сырой ответ агента');
+  String get agentCancelSelfAnalysis =>
+      _s('Cancel', 'Отменить');
+  String get agentSelfAnalysisCancelled =>
+      _s('Self-analysis cancelled.', 'Самоанализ отменён.');
+  String get agentSelfAnalysisTimedOut => _s(
+        'Self-analysis stopped: 15 minute limit reached.',
+        'Самоанализ остановлен: лимит 15 минут.',
+      );
+  String get agentSelfAnalysisIdleTimedOut => _s(
+        'Self-analysis stopped: no CLI output for 5 minutes.',
+        'Самоанализ остановлен: нет вывода от CLI 5 минут.',
+      );
+  String agentSelfAnalysisElapsed(int minutes, int seconds) => _s(
+        'Running: ${minutes}m ${seconds.toString().padLeft(2, '0')}s',
+        'Выполняется: ${minutes}м ${seconds.toString().padLeft(2, '0')}с',
+      );
+  String get agentAnalyzingSelf =>
+      _s('Running self-analysis…', 'Выполняется самоанализ…');
+  String get agentArchitectureSummaryLabel =>
+      _s('Architecture summary', 'Сводка по архитектуре');
+  String get agentWorkflowsSummaryLabel =>
+      _s('Workflows summary', 'Сводка по процессам');
+  String get agentKnowledgeInsightsLabel =>
+      _s('Topic insights', 'Инсайты по темам');
+  String get agentContextAutoRefreshHint => _s(
+        'Context refreshes automatically before each question and learns after each answer.',
+        'Контекст обновляется перед каждым вопросом и обучается после каждого ответа.',
+      );
+  String get agentAboutLabel => _s('About (self-description)', 'О себе');
+  String get agentCharacterLabel => _s('Character & tone', 'Характер и тон');
+  String get agentInstructionsLabel => _s(
+        'Custom instructions (training)',
+        'Доп. инструкции (обучение)',
+      );
+  String get agentInstructionsHint => _s(
+        'Rules, preferences, project-specific knowledge for the agent…',
+        'Правила, предпочтения, знания о проекте для агента…',
+      );
+  String get agentMemoryHint => _s(
+        'Add a fact the agent should remember…',
+        'Добавьте факт, который агент должен запомнить…',
+      );
+  String get agentMemoryEmpty => _s(
+        'No memory entries yet. Add facts to teach the agent.',
+        'Память пуста. Добавьте факты для обучения агента.',
+      );
+  String get agentAddMemory => _s('Add to memory', 'Добавить в память');
+  String get agentSaved => _s('Agent profile saved.', 'Профиль агента сохранён.');
+  String get agentMemoryAdded =>
+      _s('Memory entry added.', 'Запись добавлена в память.');
+  String get agentRefreshAiFolder =>
+      _s('Refresh .ai listing', 'Обновить список .ai');
+  String get agentAiFolderEmpty => _s(
+        'The .ai folder is empty or missing.',
+        'Папка .ai пуста или отсутствует.',
+      );
+  String get agentPromptPreviewHint => _s(
+        'Preview of the prompt sent to Cursor Agent (without your question).',
+        'Предпросмотр промпта для Cursor Agent (без вашего вопроса).',
+      );
+  String get agentColPath => _s('Path', 'Путь');
+  String get agentColSize => _s('Size', 'Размер');
+  String get agentColDescription => _s('Description', 'Описание');
+
   String get featureStructureAnalysis =>
       _s('Structure analysis', 'Анализ структуры');
   String get featureWidgetDiscovery =>

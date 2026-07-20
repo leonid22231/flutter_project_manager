@@ -1,28 +1,28 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/core/theme/idea_theme.dart';
+import 'package:project_manager/core/utils/build_history_sort_utils.dart';
+import 'package:project_manager/core/utils/flutter_platform_utils.dart';
 import 'package:project_manager/core/utils/platform_utils.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/models/build_config_source.dart';
 import 'package:project_manager/models/build_history_entry.dart';
 import 'package:project_manager/models/build_run_mode.dart';
+import 'package:project_manager/models/gitlab_check_result.dart';
 import 'package:project_manager/models/project_build_config.dart';
 import 'package:project_manager/services/build_archive_service.dart';
 import 'package:project_manager/services/build_execution_service.dart';
+import 'package:project_manager/services/build_history_logger.dart';
 import 'package:project_manager/services/gitlab_ci_build_service.dart';
 import 'package:project_manager/services/vscode_build_config_service.dart';
 import 'package:project_manager/state/app_settings_state.dart';
 import 'package:project_manager/state/project_manager_state.dart';
 import 'package:project_manager/ui/widgets/file_documentation/doc_ui_primitives.dart';
 import 'package:provider/provider.dart';
-
-enum _BuildFilter {
-  all,
-  tasks,
-  defaults,
-  gitlabCi,
-}
 
 enum _HistoryFilter {
   all,
@@ -55,27 +55,106 @@ class _BuildsViewState extends State<BuildsView> {
   String? _loadedProjectId;
   String? _selectedConfigId;
   String? _selectedHistoryId;
-  _BuildFilter _filter = _BuildFilter.all;
-  _HistoryFilter _historyFilter = _HistoryFilter.all;
   _BuildsPage _page = _BuildsPage.configurations;
+  _HistoryFilter _historyFilter = _HistoryFilter.all;
   bool _isRunning = false;
   bool _isLoadingHistory = false;
   int? _lastExitCode;
   List<BuildHistoryEntry> _history = const [];
+  List<BuildHistoryEntry> _localHistoryEntries = const [];
+  List<BuildHistoryEntry> _gitlabHistoryEntries = const [];
+  int _gitLabHistoryPage = 1;
+  int _gitLabHistoryTotalPages = 1;
   List<ProjectBuildConfig> _gitlabCiConfigs = const [];
   String? _gitLabBuildsError;
   int _gitLabYamlJobCount = 0;
+  final Map<int, _CachedGitLabHistoryPage> _gitlabHistoryPageCache = {};
+  List<BuildHistoryEntry>? _cachedLocalEntries;
   final StringBuffer _output = StringBuffer();
+  final _historyLog = BuildHistoryLogger.instance;
+  static const _defaultHistoryLoadEstimateMs = 28000;
+  static const _minHistoryLoadEstimateSeconds = 10;
+  static const _maxHistoryLoadEstimateSeconds = 90;
+  int _lastHistoryLoadEstimateMs = _defaultHistoryLoadEstimateMs;
+  Timer? _historyLoadingCountdownTimer;
+  DateTime? _historyLoadStartedAt;
+  int? _historyLoadEstimateSeconds;
+  int? _historyLoadingRemainingSeconds;
+  int? _historyLoadingElapsedSeconds;
 
   @override
   void dispose() {
+    _historyLoadingCountdownTimer?.cancel();
     _searchController.dispose();
     _outputController.dispose();
     _executionService.cancel();
     super.dispose();
   }
 
+  void _clearHistoryCache() {
+    _gitlabHistoryPageCache.clear();
+    _cachedLocalEntries = null;
+  }
+
+  bool _isTransientGitLabError(String? error) {
+    return error == 'GitLab is not connected.';
+  }
+
+  void _startHistoryLoadingCountdown() {
+    _historyLoadingCountdownTimer?.cancel();
+    _historyLoadStartedAt = DateTime.now();
+    _historyLoadEstimateSeconds =
+        ((_lastHistoryLoadEstimateMs / 1000) * 1.1).ceil().clamp(
+              _minHistoryLoadEstimateSeconds,
+              _maxHistoryLoadEstimateSeconds,
+            );
+    setState(() {
+      _historyLoadingRemainingSeconds = _historyLoadEstimateSeconds;
+      _historyLoadingElapsedSeconds = null;
+    });
+    _historyLoadingCountdownTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) {
+        if (!mounted || _historyLoadStartedAt == null) return;
+        final elapsed =
+            DateTime.now().difference(_historyLoadStartedAt!).inSeconds;
+        final remaining = _historyLoadEstimateSeconds! - elapsed;
+        setState(() {
+          if (remaining > 0) {
+            _historyLoadingRemainingSeconds = remaining;
+            _historyLoadingElapsedSeconds = null;
+          } else {
+            _historyLoadingRemainingSeconds = 0;
+            _historyLoadingElapsedSeconds = elapsed;
+          }
+        });
+      },
+    );
+  }
+
+  void _stopHistoryLoadingCountdown({int? elapsedMs}) {
+    _historyLoadingCountdownTimer?.cancel();
+    _historyLoadingCountdownTimer = null;
+    _historyLoadStartedAt = null;
+    _historyLoadEstimateSeconds = null;
+    if (elapsedMs != null && elapsedMs > 0) {
+      _lastHistoryLoadEstimateMs =
+          ((_lastHistoryLoadEstimateMs * 2) + elapsedMs) ~/ 3;
+      final maxMs = _maxHistoryLoadEstimateSeconds * 1000;
+      if (_lastHistoryLoadEstimateMs > maxMs) {
+        _lastHistoryLoadEstimateMs = maxMs;
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _historyLoadingRemainingSeconds = null;
+        _historyLoadingElapsedSeconds = null;
+      });
+    }
+  }
+
   void _reload(String projectId, String projectPath, List<String> platforms) {
+    _clearHistoryCache();
     setState(() {
       _loadedProjectPath = projectPath;
       _loadedProjectId = projectId;
@@ -89,6 +168,10 @@ class _BuildsViewState extends State<BuildsView> {
       _lastExitCode = null;
       _isRunning = false;
       _history = const [];
+      _localHistoryEntries = const [];
+      _gitlabHistoryEntries = const [];
+      _gitLabHistoryPage = 1;
+      _gitLabHistoryTotalPages = 1;
       _gitlabCiConfigs = const [];
       _gitLabBuildsError = null;
       _gitLabYamlJobCount = 0;
@@ -100,16 +183,41 @@ class _BuildsViewState extends State<BuildsView> {
     String projectId,
     String projectPath,
   ) async {
-    final gitLabBaseUrl = context.read<AppSettingsState>().gitlabSettings.enabled
-        ? context.read<AppSettingsState>().gitlabSettings.normalizedBaseUrl
+    final appSettings = context.read<AppSettingsState>();
+    final gitLabBaseUrl = appSettings.gitlabSettings.enabled
+        ? appSettings.gitlabSettings.normalizedBaseUrl
         : null;
     await context.read<ProjectManagerState>().refreshGitStatus(
           configuredGitLabBaseUrl: gitLabBaseUrl,
         );
     if (!mounted || _loadedProjectId != projectId) return;
+    await _ensureGitLabConnection(appSettings);
+    if (!mounted || _loadedProjectId != projectId) return;
     await _loadGitLabCiConfigs(projectPath);
     if (!mounted || _loadedProjectId != projectId) return;
     await _loadHistory(projectId, projectPath);
+  }
+
+  Future<GitLabCheckResult?> _ensureGitLabConnection(
+    AppSettingsState appSettings,
+  ) async {
+    if (!appSettings.gitlabSettings.enabled) return null;
+
+    while (appSettings.isLoading && mounted) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (!mounted) return appSettings.lastGitLabCheck;
+
+    while (appSettings.isCheckingGitLab && mounted) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    if (!mounted) return appSettings.lastGitLabCheck;
+
+    if (appSettings.lastGitLabCheck?.connected == true) {
+      return appSettings.lastGitLabCheck;
+    }
+
+    return appSettings.checkGitLabConnection();
   }
 
   Future<void> _loadGitLabCiConfigs(String projectPath) async {
@@ -121,9 +229,12 @@ class _BuildsViewState extends State<BuildsView> {
       return;
     }
 
+    final connection = await _ensureGitLabConnection(appSettings);
+    if (!mounted || _loadedProjectPath != projectPath) return;
+
     final configs = await _gitlabCiService.listCiJobConfigs(
       settings: appSettings.gitlabSettings,
-      connection: appSettings.lastGitLabCheck,
+      connection: connection,
       gitStatus: gitStatus,
       projectRoot: projectPath,
     );
@@ -132,54 +243,205 @@ class _BuildsViewState extends State<BuildsView> {
     setState(() => _gitlabCiConfigs = configs);
   }
 
-  Future<void> _loadHistory(String projectId, String projectPath) async {
+  Future<void> _loadHistory(String projectId, String projectPath) {
+    _clearHistoryCache();
+    return _loadHistoryPage(
+      projectId,
+      projectPath,
+      page: 1,
+      refreshLocal: true,
+    );
+  }
+
+  Future<void> _loadHistoryPage(
+    String projectId,
+    String projectPath, {
+    required int page,
+    bool refreshLocal = false,
+    bool forceRefresh = false,
+  }) async {
+    if (forceRefresh) {
+      _clearHistoryCache();
+    }
+
+    final cachedPage = !forceRefresh ? _gitlabHistoryPageCache[page] : null;
+    if (cachedPage != null) {
+      final localEntries = page == 1 && _cachedLocalEntries != null
+          ? _cachedLocalEntries!
+          : _localHistoryEntries;
+
+      _historyLog.info(
+        'loadHistoryPage cache hit',
+        source: 'builds-view',
+        data: {
+          'projectId': projectId,
+          'page': page,
+          'builds': cachedPage.entries.length,
+        },
+      );
+
+      _applyHistoryState(
+        projectId: projectId,
+        localEntries: localEntries,
+        gitlabEntries: cachedPage.entries,
+        gitLabError: cachedPage.error != null &&
+                _isTransientGitLabError(cachedPage.error)
+            ? null
+            : (cachedPage.error ?? _gitLabBuildsError),
+        yamlJobCount: cachedPage.yamlJobCount,
+        gitLabPage: page,
+        gitLabTotalPages: cachedPage.totalPages,
+      );
+      return;
+    }
+
+    _historyLog.info(
+      'loadHistoryPage start',
+      source: 'builds-view',
+      data: {
+        'projectId': projectId,
+        'projectPath': projectPath,
+        'page': page,
+        'refreshLocal': refreshLocal,
+      },
+    );
+
+    final loadStarted = Stopwatch()..start();
+    _startHistoryLoadingCountdown();
     setState(() => _isLoadingHistory = true);
 
     try {
-      final local = await _archiveService.listArchives(projectId);
-      final items = local.map(BuildHistoryEntry.fromLocal).toList();
-
-      String? gitLabError;
-      var yamlJobCount = 0;
+      var localEntries = _localHistoryEntries;
+      if (refreshLocal || page == 1) {
+        final local = await _archiveService.listArchives(projectId);
+        localEntries = local.map(BuildHistoryEntry.fromLocal).toList();
+      }
 
       if (!mounted || _loadedProjectId != projectId) return;
 
       final appSettings = context.read<AppSettingsState>();
       final gitStatus = context.read<ProjectManagerState>().gitRepositoryStatus;
 
+      String? gitLabError;
+      var yamlJobCount = _gitLabYamlJobCount;
+      var gitlabEntries = _gitlabHistoryEntries;
+      var gitLabPage = page;
+      var gitLabTotalPages = _gitLabHistoryTotalPages;
+
       if (appSettings.gitlabSettings.enabled) {
+        final connection = await _ensureGitLabConnection(appSettings);
+        if (!mounted || _loadedProjectId != projectId) return;
+
         final result = await _gitlabCiService.listBuilds(
           settings: appSettings.gitlabSettings,
-          connection: appSettings.lastGitLabCheck,
+          connection: connection,
           gitStatus: gitStatus,
           projectRoot: projectPath,
+          page: page,
         );
-        items.addAll(result.builds.map(BuildHistoryEntry.fromGitLab));
+        gitlabEntries = result.builds.map(BuildHistoryEntry.fromGitLab).toList();
         gitLabError = result.error;
         yamlJobCount = result.buildJobNames.length;
+        gitLabPage = result.currentPage;
+        gitLabTotalPages = result.totalPages < 1 ? 1 : result.totalPages;
+
+        _historyLog.info(
+          'loadHistoryPage gitlab loaded',
+          source: 'builds-view',
+          data: {
+            'projectPath': projectPath,
+            'rawJobs': result.rawJobCount,
+            'builds': gitlabEntries.length,
+            'page': gitLabPage,
+            'totalPages': gitLabTotalPages,
+            'hasNextPage': result.hasNextPage,
+            'error': result.error,
+          },
+        );
+      } else {
+        gitlabEntries = const [];
+        gitLabPage = 1;
+        gitLabTotalPages = 1;
       }
 
       if (!mounted || _loadedProjectId != projectId) return;
 
-      items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      setState(() {
-        _history = items;
-        _gitLabBuildsError = gitLabError;
-        _gitLabYamlJobCount = yamlJobCount;
-        if (_selectedHistoryId != null &&
-            !items.any((entry) => entry.id == _selectedHistoryId)) {
-          _selectedHistoryId = null;
-        }
-        final visible = _filterHistory(items);
-        if (_selectedHistoryId == null && visible.isNotEmpty) {
-          _selectedHistoryId = visible.first.id;
-        }
-      });
+      if (gitLabError == null || !_isTransientGitLabError(gitLabError)) {
+        _gitlabHistoryPageCache[gitLabPage] = _CachedGitLabHistoryPage(
+          entries: gitlabEntries,
+          totalPages: gitLabTotalPages,
+          error: gitLabError,
+          yamlJobCount: yamlJobCount,
+        );
+      }
+      if (refreshLocal || page == 1) {
+        _cachedLocalEntries = localEntries;
+      }
+
+      _applyHistoryState(
+        projectId: projectId,
+        localEntries: localEntries,
+        gitlabEntries: gitlabEntries,
+        gitLabError: gitLabError,
+        yamlJobCount: yamlJobCount,
+        gitLabPage: gitLabPage,
+        gitLabTotalPages: gitLabTotalPages,
+      );
     } finally {
+      _stopHistoryLoadingCountdown(elapsedMs: loadStarted.elapsedMilliseconds);
       if (mounted && _loadedProjectId == projectId) {
         setState(() => _isLoadingHistory = false);
       }
     }
+  }
+
+  List<BuildHistoryEntry> _mergedHistoryEntries({
+    required List<BuildHistoryEntry> localEntries,
+    required List<BuildHistoryEntry> gitlabEntries,
+    required int gitLabPage,
+  }) {
+    final items = gitLabPage <= 1
+        ? [...localEntries, ...gitlabEntries]
+        : List<BuildHistoryEntry>.from(gitlabEntries);
+    sortBuildHistoryEntries(items);
+    return items;
+  }
+
+  void _applyHistoryState({
+    required String projectId,
+    required List<BuildHistoryEntry> localEntries,
+    required List<BuildHistoryEntry> gitlabEntries,
+    required String? gitLabError,
+    required int yamlJobCount,
+    required int gitLabPage,
+    required int gitLabTotalPages,
+  }) {
+    final items = _mergedHistoryEntries(
+      localEntries: localEntries,
+      gitlabEntries: gitlabEntries,
+      gitLabPage: gitLabPage,
+    );
+
+    setState(() {
+      _localHistoryEntries = localEntries;
+      _gitlabHistoryEntries = gitlabEntries;
+      _history = items;
+      _gitLabBuildsError = gitLabError;
+      _gitLabYamlJobCount = yamlJobCount;
+      _gitLabHistoryPage = gitLabPage;
+      _gitLabHistoryTotalPages = math.max(
+        _gitLabHistoryTotalPages,
+        gitLabTotalPages < 1 ? 1 : gitLabTotalPages,
+      );
+      if (_selectedHistoryId != null &&
+          !items.any((entry) => entry.id == _selectedHistoryId)) {
+        _selectedHistoryId = null;
+      }
+      final visible = _filterHistory(items);
+      if (_selectedHistoryId == null && visible.isNotEmpty) {
+        _selectedHistoryId = visible.first.id;
+      }
+    });
   }
 
   List<BuildHistoryEntry> _filterHistory(List<BuildHistoryEntry> entries) {
@@ -192,26 +454,50 @@ class _BuildsViewState extends State<BuildsView> {
     }).toList();
   }
 
+  Future<List<String>> _loadGitLabArtifactDetails(
+    BuildHistoryEntry entry,
+  ) async {
+    final jobId = entry.gitlabJobId;
+    final projectPath = _loadedProjectPath;
+    if (jobId == null || projectPath == null) return entry.artifactFiles;
+
+    final files = await _gitlabCiService.loadArtifactFilesForJob(
+      settings: context.read<AppSettingsState>().gitlabSettings,
+      gitStatus: context.read<ProjectManagerState>().gitRepositoryStatus,
+      jobId: jobId,
+      projectRoot: projectPath,
+    );
+    return files.isEmpty ? entry.artifactFiles : files;
+  }
+
   List<ProjectBuildConfig> _filterConfigs(List<ProjectBuildConfig> configs) {
     final query = _searchController.text.trim().toLowerCase();
     return configs.where((config) {
-      if (!_matchesFilter(config)) return false;
       if (query.isEmpty) return true;
       if (config.name.toLowerCase().contains(query)) return true;
       if (config.displayCommand.toLowerCase().contains(query)) return true;
       if (config.mode.name.toLowerCase().contains(query)) return true;
+      if (_platformLabel(config).toLowerCase().contains(query)) return true;
       return false;
     }).toList();
   }
 
-  bool _matchesFilter(ProjectBuildConfig config) {
-    return switch (_filter) {
-      _BuildFilter.all => true,
-      _BuildFilter.tasks => config.source == BuildConfigSource.tasksJson,
-      _BuildFilter.defaults =>
-        config.source == BuildConfigSource.flutterDefault,
-      _BuildFilter.gitlabCi => config.source == BuildConfigSource.gitlabCi,
+  List<ProjectBuildConfig> _mergeVisibleConfigs({
+    required List<ProjectBuildConfig> scanned,
+    required List<ProjectBuildConfig> gitlabCi,
+  }) {
+    if (gitlabCi.isEmpty) return scanned;
+
+    final gitlabKeys = {
+      for (final config in gitlabCi) _buildConfigDedupeKey(config),
     };
+
+    final localOnly = scanned.where((config) {
+      if (config.source == BuildConfigSource.gitlabCi) return false;
+      return !gitlabKeys.contains(_buildConfigDedupeKey(config));
+    });
+
+    return [...gitlabCi, ...localOnly];
   }
 
   Future<void> _runGitLabPipeline(
@@ -241,9 +527,12 @@ class _BuildsViewState extends State<BuildsView> {
     });
 
     try {
+      final connection = await _ensureGitLabConnection(appSettings);
+      if (!mounted) return;
+
       final result = await _gitlabCiService.triggerPipeline(
         settings: appSettings.gitlabSettings,
-        connection: appSettings.lastGitLabCheck,
+        connection: connection,
         gitStatus: gitStatus,
         ref: ref,
       );
@@ -400,17 +689,25 @@ class _BuildsViewState extends State<BuildsView> {
                   selectedEntryId: _selectedHistoryId,
                   historyFilter: _historyFilter,
                   isLoading: _isLoadingHistory,
-                  gitLabError: _gitLabBuildsError,
+                  loadingRemainingSeconds: _historyLoadingRemainingSeconds,
+                  loadingElapsedSeconds: _historyLoadingElapsedSeconds,
+                  gitLabError: context.watch<AppSettingsState>().isCheckingGitLab
+                      ? null
+                      : _gitLabBuildsError,
                   gitLabYamlJobCount: _gitLabYamlJobCount,
                   gitLabEnabled: context
                       .watch<AppSettingsState>()
                       .gitlabSettings
                       .enabled,
+                  gitLabHistoryPage: _gitLabHistoryPage,
+                  gitLabHistoryTotalPages: _gitLabHistoryTotalPages,
                   onFilterChanged: (filter) => setState(() {
                     _historyFilter = filter;
                     final visible = _filterHistory(_history);
                     if (_selectedHistoryId == null ||
-                        !visible.any((entry) => entry.id == _selectedHistoryId)) {
+                        !visible.any(
+                          (entry) => entry.id == _selectedHistoryId,
+                        )) {
                       _selectedHistoryId =
                           visible.isNotEmpty ? visible.first.id : null;
                     }
@@ -418,10 +715,16 @@ class _BuildsViewState extends State<BuildsView> {
                   onSelect: (id) => setState(() => _selectedHistoryId = id),
                   onRefresh: () =>
                       _refreshGitAndHistory(project.id, project.path),
+                  onPageChanged: (page) => _loadHistoryPage(
+                    project.id,
+                    project.path,
+                    page: page,
+                  ),
                   onOpenFolder: openPathInExplorer,
                   onOpenUrl: openExternalUrl,
                   onDeleteLocal: (entry) =>
                       _deleteLocalArchive(context, project.id, entry),
+                  onLoadGitLabArtifacts: _loadGitLabArtifactDetails,
                 )
               : FutureBuilder<ProjectBuildScanResult>(
             future: _future,
@@ -455,10 +758,10 @@ class _BuildsViewState extends State<BuildsView> {
               final result = snapshot.data;
               if (result == null) return const SizedBox.shrink();
 
-              final allConfigs = [
-                ...result.configs,
-                ..._gitlabCiConfigs,
-              ];
+              final allConfigs = _mergeVisibleConfigs(
+                scanned: result.configs,
+                gitlabCi: _gitlabCiConfigs,
+              );
               final filtered = _filterConfigs(allConfigs);
               final selected = filtered.cast<ProjectBuildConfig?>().firstWhere(
                     (config) => config?.id == _selectedConfigId,
@@ -475,71 +778,18 @@ class _BuildsViewState extends State<BuildsView> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                l10n.buildsSummary(
-                                  filtered.length,
-                                  allConfigs.length,
-                                ),
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                            ),
-                            if (result.tasksJsonPath != null)
-                              TextButton.icon(
-                                onPressed: () =>
-                                    state.openFile(result.tasksJsonPath!),
-                                icon: const Icon(Icons.task_alt, size: 14),
-                                label: Text(l10n.buildsOpenTasksJson),
-                              ),
-                          ],
-                        ),
-                        if (result.usingDefaultConfigs)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(
-                              result.resolvedPlatforms.isEmpty
-                                  ? l10n.buildsUsingDefaultsNoPlatforms
-                                  : l10n.buildsUsingDefaultsForPlatforms(
-                                      result.resolvedPlatforms.join(', '),
-                                    ),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ),
-                        if (result.errorMessage != null) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            result.errorMessage!,
-                            style: const TextStyle(
-                              color: IdeaColors.warning,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final filter in _BuildFilter.values)
-                              if (filter != _BuildFilter.defaults ||
-                                  result.usingDefaultConfigs)
-                                if (filter != _BuildFilter.gitlabCi ||
-                                    _gitlabCiConfigs.isNotEmpty)
-                                  FilterChip(
-                                    label: Text(_filterLabel(l10n, filter)),
-                                    selected: _filter == filter,
-                                    onSelected: (_) =>
-                                        setState(() => _filter = filter),
-                                  ),
-                          ],
-                        ),
-                      ],
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: _BuildsSummaryHeader(
+                      l10n: l10n,
+                      shownCount: filtered.length,
+                      totalCount: allConfigs.length,
+                      usingDefaults: result.usingDefaultConfigs,
+                      platforms: result.resolvedPlatforms,
+                      tasksJsonPath: result.tasksJsonPath,
+                      errorMessage: result.errorMessage,
+                      onOpenTasksJson: result.tasksJsonPath == null
+                          ? null
+                          : () => state.openFile(result.tasksJsonPath!),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -557,30 +807,21 @@ class _BuildsViewState extends State<BuildsView> {
                                         Theme.of(context).textTheme.bodySmall,
                                   ),
                                 )
-                              : ListView.separated(
-                                  padding: const EdgeInsets.all(16),
-                                  itemCount: filtered.length,
-                                  separatorBuilder: (_, _) =>
-                                      const SizedBox(height: 8),
-                                  itemBuilder: (context, index) {
-                                    final config = filtered[index];
-                                    return _BuildConfigTile(
-                                      config: config,
-                                      isSelected: config.id == _selectedConfigId,
-                                      l10n: l10n,
-                                      onTap: () => setState(
-                                        () => _selectedConfigId = config.id,
-                                      ),
-                                      onRun: config.canRunDirectly && !_isRunning
-                                          ? () => _runConfig(
-                                                context,
-                                                config,
-                                                project.id,
-                                                project.path,
-                                              )
-                                          : null,
-                                    );
-                                  },
+                              : _GroupedBuildConfigList(
+                                  configs: filtered,
+                                  selectedConfigId: _selectedConfigId,
+                                  l10n: l10n,
+                                  onSelect: (id) =>
+                                      setState(() => _selectedConfigId = id),
+                                  onRun: (config) => config.canRunDirectly &&
+                                          !_isRunning
+                                      ? () => _runConfig(
+                                            context,
+                                            config,
+                                            project.id,
+                                            project.path,
+                                          )
+                                      : null,
                                 ),
                         ),
                         const VerticalDivider(width: 1),
@@ -638,15 +879,6 @@ class _BuildsViewState extends State<BuildsView> {
         ),
       ],
     );
-  }
-
-  String _filterLabel(AppLocalizations l10n, _BuildFilter filter) {
-    return switch (filter) {
-      _BuildFilter.all => l10n.buildsFilterAll,
-      _BuildFilter.tasks => l10n.buildsFilterTasks,
-      _BuildFilter.defaults => l10n.buildsFilterDefaults,
-      _BuildFilter.gitlabCi => l10n.buildsFilterGitLabCi,
-    };
   }
 
   Future<void> _deleteLocalArchive(
@@ -794,11 +1026,280 @@ class _Toolbar extends StatelessWidget {
   }
 }
 
+const _platformDisplayOrder = <String>[
+  'Android',
+  'iOS',
+  'Windows',
+  'Web',
+  'Linux',
+  'macOS',
+  'GitLab CI',
+  'Other',
+];
+
+class _BuildsSummaryHeader extends StatelessWidget {
+  const _BuildsSummaryHeader({
+    required this.l10n,
+    required this.shownCount,
+    required this.totalCount,
+    required this.usingDefaults,
+    required this.platforms,
+    this.tasksJsonPath,
+    this.errorMessage,
+    this.onOpenTasksJson,
+  });
+
+  final AppLocalizations l10n;
+  final int shownCount;
+  final int totalCount;
+  final bool usingDefaults;
+  final List<String> platforms;
+  final String? tasksJsonPath;
+  final String? errorMessage;
+  final VoidCallback? onOpenTasksJson;
+
+  @override
+  Widget build(BuildContext context) {
+    final defaultsHint = platforms.isEmpty
+        ? l10n.buildsUsingDefaultsNoPlatforms
+        : l10n.buildsUsingDefaultsForPlatforms(platforms.join(', '));
+
+    return DocSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: IdeaColors.accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: IdeaColors.accent.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.construction_outlined,
+                  size: 18,
+                  color: IdeaColors.accent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.buildsSummary(shownCount, totalCount),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: IdeaColors.textBright,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _Badge(
+                          label: l10n.buildsStageBuildOnly,
+                          color: IdeaColors.success,
+                        ),
+                        if (usingDefaults)
+                          _Badge(
+                            label: l10n.buildsSourceDefault,
+                            color: IdeaColors.warning,
+                          ),
+                        if (tasksJsonPath != null)
+                          _Badge(
+                            label: l10n.buildsSourceTasks,
+                            color: IdeaColors.accent,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (onOpenTasksJson != null)
+                TextButton.icon(
+                  onPressed: onOpenTasksJson,
+                  icon: const Icon(Icons.open_in_new, size: 14),
+                  label: Text(l10n.buildsOpenTasksJson),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    textStyle: const TextStyle(fontSize: 11),
+                  ),
+                ),
+            ],
+          ),
+          if (usingDefaults) ...[
+            const SizedBox(height: 10),
+            Text(
+              defaultsHint,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (errorMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              errorMessage!,
+              style: const TextStyle(fontSize: 11, color: IdeaColors.error),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupedBuildConfigList extends StatelessWidget {
+  const _GroupedBuildConfigList({
+    required this.configs,
+    required this.selectedConfigId,
+    required this.l10n,
+    required this.onSelect,
+    required this.onRun,
+  });
+
+  final List<ProjectBuildConfig> configs;
+  final String? selectedConfigId;
+  final AppLocalizations l10n;
+  final ValueChanged<String> onSelect;
+  final VoidCallback? Function(ProjectBuildConfig config) onRun;
+
+  Map<String, List<ProjectBuildConfig>> _groupByPlatform() {
+    final grouped = <String, List<ProjectBuildConfig>>{};
+    for (final config in configs) {
+      final label = _platformLabel(config);
+      grouped.putIfAbsent(label, () => []).add(config);
+    }
+    for (final items in grouped.values) {
+      items.sort((a, b) => a.name.compareTo(b.name));
+    }
+    return grouped;
+  }
+
+  List<String> _orderedPlatforms(Map<String, List<ProjectBuildConfig>> grouped) {
+    final ordered = _platformDisplayOrder
+        .where((platform) => grouped.containsKey(platform))
+        .toList();
+    for (final platform in grouped.keys) {
+      if (!ordered.contains(platform)) ordered.add(platform);
+    }
+    return ordered;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = _groupByPlatform();
+    final platforms = _orderedPlatforms(grouped);
+
+    return CustomScrollView(
+      slivers: [
+        for (final platform in platforms) ...[
+          SliverToBoxAdapter(
+            child: _PlatformSectionHeader(
+              label: platform,
+              icon: _platformIcon(platform),
+              color: _platformColor(platform),
+              count: grouped[platform]!.length,
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final config = grouped[platform]![index];
+                  final color = _platformColor(platform);
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _BuildConfigTile(
+                      config: config,
+                      isSelected: config.id == selectedConfigId,
+                      l10n: l10n,
+                      platformColor: color,
+                      platformIcon: _platformIcon(platform),
+                      onTap: () => onSelect(config.id),
+                      onRun: onRun(config),
+                    ),
+                  );
+                },
+                childCount: grouped[platform]!.length,
+              ),
+            ),
+          ),
+        ],
+        const SliverToBoxAdapter(child: SizedBox(height: 4)),
+      ],
+    );
+  }
+}
+
+class _PlatformSectionHeader extends StatelessWidget {
+  const _PlatformSectionHeader({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.count,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+              letterSpacing: 0.3,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: color.withValues(alpha: 0.35)),
+            ),
+            child: Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _BuildConfigTile extends StatelessWidget {
   const _BuildConfigTile({
     required this.config,
     required this.isSelected,
     required this.l10n,
+    required this.platformColor,
+    required this.platformIcon,
     required this.onTap,
     required this.onRun,
   });
@@ -806,15 +1307,19 @@ class _BuildConfigTile extends StatelessWidget {
   final ProjectBuildConfig config;
   final bool isSelected;
   final AppLocalizations l10n;
+  final Color platformColor;
+  final IconData platformIcon;
   final VoidCallback onTap;
   final VoidCallback? onRun;
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: IdeaColors.sidebar,
+      color: isSelected
+          ? IdeaColors.accent.withValues(alpha: 0.06)
+          : IdeaColors.sidebar,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         side: BorderSide(
           color: isSelected ? IdeaColors.accent : IdeaColors.panelBorder,
           width: isSelected ? 1.5 : 1,
@@ -826,7 +1331,21 @@ class _BuildConfigTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: platformColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: platformColor.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Icon(platformIcon, size: 17, color: platformColor),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -882,7 +1401,9 @@ class _BuildConfigTile extends StatelessWidget {
                 IconButton(
                   tooltip: l10n.buildsRun,
                   onPressed: onRun,
-                  icon: const Icon(Icons.play_arrow, color: IdeaColors.success),
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.play_arrow_rounded,
+                      color: IdeaColors.success),
                 ),
             ],
           ),
@@ -926,102 +1447,104 @@ class _BuildDetailPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  config.name,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                DocSectionCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    config.name,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  DocSectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _DetailRow(label: l10n.buildsLabelSource, value: _sourceLabel(l10n, config.source)),
+                        _DetailRow(label: l10n.buildsLabelMode, value: _modeLabel(l10n, config.mode)),
+                        if (config.type != null)
+                          _DetailRow(label: l10n.buildsLabelType, value: config.type!),
+                        if (config.program != null)
+                          _DetailRow(label: l10n.buildsLabelProgram, value: config.program!),
+                        if (config.deviceId != null)
+                          _DetailRow(label: l10n.buildsLabelDevice, value: config.deviceId!),
+                        if (config.preLaunchTask != null)
+                          _DetailRow(
+                            label: l10n.buildsLabelPreLaunch,
+                            value: config.preLaunchTask!,
+                          ),
+                        if (config.isGitLabCiJob && gitBranch != null)
+                          _DetailRow(
+                            label: l10n.buildsGitLabPipelineRef,
+                            value: gitBranch!,
+                          ),
+                        if (config.taskGroup != null)
+                          _DetailRow(label: l10n.buildsLabelTaskGroup, value: config.taskGroup!),
+                        if (config.childConfigurationNames.isNotEmpty)
+                          _DetailRow(
+                            label: l10n.buildsLabelChildren,
+                            value: config.childConfigurationNames.join(', '),
+                          ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.buildsLabelCommand,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        const SizedBox(height: 4),
+                        SelectableText(
+                          config.displayCommand,
+                          style: const TextStyle(
+                            fontFamily: 'Consolas',
+                            fontSize: 11,
+                            color: IdeaColors.textBright,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      _DetailRow(label: l10n.buildsLabelSource, value: _sourceLabel(l10n, config.source)),
-                      _DetailRow(label: l10n.buildsLabelMode, value: _modeLabel(l10n, config.mode)),
-                      if (config.type != null)
-                        _DetailRow(label: l10n.buildsLabelType, value: config.type!),
-                      if (config.program != null)
-                        _DetailRow(label: l10n.buildsLabelProgram, value: config.program!),
-                      if (config.deviceId != null)
-                        _DetailRow(label: l10n.buildsLabelDevice, value: config.deviceId!),
-                      if (config.preLaunchTask != null)
-                        _DetailRow(
-                          label: l10n.buildsLabelPreLaunch,
-                          value: config.preLaunchTask!,
+                      if (onRun != null)
+                        FilledButton.icon(
+                          onPressed: onRun,
+                          icon: Icon(
+                            config.isGitLabCiJob
+                                ? Icons.cloud_upload_outlined
+                                : Icons.play_arrow,
+                            size: 16,
+                          ),
+                          label: Text(
+                            config.isGitLabCiJob
+                                ? l10n.buildsRunInGitLab
+                                : l10n.buildsRun,
+                          ),
                         ),
-                      if (config.isGitLabCiJob && gitBranch != null)
-                        _DetailRow(
-                          label: l10n.buildsGitLabPipelineRef,
-                          value: gitBranch!,
+                      if (onStop != null && !config.isGitLabCiJob)
+                        OutlinedButton.icon(
+                          onPressed: onStop,
+                          icon: const Icon(Icons.stop, size: 16),
+                          label: Text(l10n.buildsStop),
                         ),
-                      if (config.taskGroup != null)
-                        _DetailRow(label: l10n.buildsLabelTaskGroup, value: config.taskGroup!),
-                      if (config.childConfigurationNames.isNotEmpty)
-                        _DetailRow(
-                          label: l10n.buildsLabelChildren,
-                          value: config.childConfigurationNames.join(', '),
-                        ),
-                      const SizedBox(height: 8),
-                      Text(
-                        l10n.buildsLabelCommand,
-                        style: Theme.of(context).textTheme.labelSmall,
+                      OutlinedButton.icon(
+                        onPressed: onCopyCommand,
+                        icon: const Icon(Icons.copy, size: 16),
+                        label: Text(l10n.buildsCopyCommand),
                       ),
-                      const SizedBox(height: 4),
-                      SelectableText(
-                        config.displayCommand,
-                        style: const TextStyle(
-                          fontFamily: 'Consolas',
-                          fontSize: 11,
-                          color: IdeaColors.textBright,
+                      if (onOpenSource != null)
+                        OutlinedButton.icon(
+                          onPressed: onOpenSource,
+                          icon: const Icon(Icons.open_in_new, size: 16),
+                          label: Text(l10n.buildsOpenSource),
                         ),
-                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (onRun != null)
-                      FilledButton.icon(
-                        onPressed: onRun,
-                        icon: Icon(
-                          config.isGitLabCiJob
-                              ? Icons.cloud_upload_outlined
-                              : Icons.play_arrow,
-                          size: 16,
-                        ),
-                        label: Text(
-                          config.isGitLabCiJob
-                              ? l10n.buildsRunInGitLab
-                              : l10n.buildsRun,
-                        ),
-                      ),
-                    if (onStop != null && !config.isGitLabCiJob)
-                      OutlinedButton.icon(
-                        onPressed: onStop,
-                        icon: const Icon(Icons.stop, size: 16),
-                        label: Text(l10n.buildsStop),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: onCopyCommand,
-                      icon: const Icon(Icons.copy, size: 16),
-                      label: Text(l10n.buildsCopyCommand),
-                    ),
-                    if (onOpenSource != null)
-                      OutlinedButton.icon(
-                        onPressed: onOpenSource,
-                        icon: const Icon(Icons.open_in_new, size: 16),
-                        label: Text(l10n.buildsOpenSource),
-                      ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           const Divider(height: 1),
@@ -1183,15 +1706,21 @@ class _BuildHistoryPanel extends StatelessWidget {
     required this.selectedEntryId,
     required this.historyFilter,
     required this.isLoading,
+    this.loadingRemainingSeconds,
+    this.loadingElapsedSeconds,
     required this.gitLabError,
     required this.gitLabYamlJobCount,
     required this.gitLabEnabled,
+    required this.gitLabHistoryPage,
+    required this.gitLabHistoryTotalPages,
     required this.onFilterChanged,
     required this.onSelect,
     required this.onRefresh,
+    required this.onPageChanged,
     required this.onOpenFolder,
     required this.onOpenUrl,
     required this.onDeleteLocal,
+    required this.onLoadGitLabArtifacts,
   });
 
   final AppLocalizations l10n;
@@ -1200,15 +1729,49 @@ class _BuildHistoryPanel extends StatelessWidget {
   final String? selectedEntryId;
   final _HistoryFilter historyFilter;
   final bool isLoading;
+  final int? loadingRemainingSeconds;
+  final int? loadingElapsedSeconds;
   final String? gitLabError;
   final int gitLabYamlJobCount;
   final bool gitLabEnabled;
+  final int gitLabHistoryPage;
+  final int gitLabHistoryTotalPages;
   final ValueChanged<_HistoryFilter> onFilterChanged;
   final ValueChanged<String> onSelect;
   final VoidCallback onRefresh;
+  final ValueChanged<int> onPageChanged;
   final Future<void> Function(String path) onOpenFolder;
   final Future<void> Function(String url) onOpenUrl;
   final ValueChanged<BuildHistoryEntry> onDeleteLocal;
+  final Future<List<String>> Function(BuildHistoryEntry entry)
+      onLoadGitLabArtifacts;
+
+  bool get _showPageTabs =>
+      gitLabEnabled &&
+      historyFilter != _HistoryFilter.local &&
+      gitLabHistoryTotalPages > 1;
+
+  String _historyLoadingMessage(AppLocalizations l10n) {
+    final remaining = loadingRemainingSeconds;
+    if (remaining == null) return l10n.buildsLoadingGitLabBuilds;
+    if (remaining > 0) return l10n.buildsHistoryLoadingCountdown(remaining);
+    final elapsed = loadingElapsedSeconds;
+    if (elapsed != null) return l10n.buildsHistoryLoadingElapsed(elapsed);
+    return l10n.buildsLoadingGitLabBuilds;
+  }
+
+  String? _historyLoadingShortLabel(AppLocalizations l10n) {
+    final remaining = loadingRemainingSeconds;
+    if (remaining == null) return null;
+    if (remaining > 0) {
+      return l10n.buildsHistoryLoadingCountdownShort(remaining);
+    }
+    final elapsed = loadingElapsedSeconds;
+    if (elapsed != null) {
+      return l10n.buildsHistoryLoadingElapsedShort(elapsed);
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1231,7 +1794,7 @@ class _BuildHistoryPanel extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
                 const SizedBox(width: 12),
-                if (isLoading)
+                if (isLoading) ...[
                   const SizedBox(
                     width: 14,
                     height: 14,
@@ -1240,6 +1803,16 @@ class _BuildHistoryPanel extends StatelessWidget {
                       color: IdeaColors.accent,
                     ),
                   ),
+                  if (loadingRemainingSeconds != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      _historyLoadingShortLabel(l10n) ?? '',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: IdeaColors.textSecondary,
+                          ),
+                    ),
+                  ],
+                ],
                 const Spacer(),
                 IconButton(
                   tooltip: l10n.refreshBuilds,
@@ -1264,6 +1837,17 @@ class _BuildHistoryPanel extends StatelessWidget {
               ],
             ),
           ),
+          if (_showPageTabs)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: _HistoryPageTabs(
+                l10n: l10n,
+                currentPage: gitLabHistoryPage,
+                totalPages: gitLabHistoryTotalPages,
+                isLoading: isLoading,
+                onPageSelected: onPageChanged,
+              ),
+            ),
           if (gitLabEnabled && gitLabYamlJobCount > 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -1283,118 +1867,46 @@ class _BuildHistoryPanel extends StatelessWidget {
           Expanded(
             child: entries.isEmpty
                 ? Center(
-                    child: Text(
-                      isLoading
-                          ? l10n.buildsLoadingGitLabBuilds
-                          : (allEntries.isEmpty
-                              ? (gitLabEnabled
-                                  ? l10n.buildsHistoryEmpty
-                                  : l10n.buildsGitLabBuildsHint)
-                              : l10n.buildsNoMatches),
-                      style: Theme.of(context).textTheme.bodySmall,
-                      textAlign: TextAlign.center,
-                    ),
+                    child: isLoading
+                        ? Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: IdeaColors.accent,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _historyLoadingMessage(l10n),
+                                style: Theme.of(context).textTheme.bodySmall,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          )
+                        : Text(
+                            allEntries.isEmpty
+                                ? (gitLabEnabled
+                                    ? l10n.buildsHistoryEmpty
+                                    : l10n.buildsGitLabBuildsHint)
+                                : l10n.buildsNoMatches,
+                            style: Theme.of(context).textTheme.bodySmall,
+                            textAlign: TextAlign.center,
+                          ),
                   )
                 : Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Expanded(
                         flex: 5,
-                        child: ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 8, 12),
-                          itemCount: entries.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 6),
-                          itemBuilder: (context, index) {
-                            final entry = entries[index];
-                            final isSelected = entry.id == selectedEntryId;
-                            return Material(
-                              color: isSelected
-                                  ? IdeaColors.accent.withValues(alpha: 0.12)
-                                  : IdeaColors.sidebar,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(6),
-                                side: BorderSide(
-                                  color: isSelected
-                                      ? IdeaColors.accent
-                                      : IdeaColors.panelBorder,
-                                ),
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: () => onSelect(entry.id),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(10),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              'v${entry.projectVersion}',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: IdeaColors.textBright,
-                                              ),
-                                            ),
-                                          ),
-                                          _HistorySourceBadge(
-                                            label: entry.isLocal
-                                                ? l10n.buildsHistorySourceLocal
-                                                : l10n.buildsHistorySourceGitLab,
-                                            color: entry.isLocal
-                                                ? IdeaColors.success
-                                                : IdeaColors.accent,
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            entry.platform,
-                                            style: const TextStyle(
-                                              fontSize: 10,
-                                              color: IdeaColors.textSecondary,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        entry.configName,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 11,
-                                          color: IdeaColors.textPrimary,
-                                        ),
-                                      ),
-                                      if (entry.isGitLab && entry.gitlabRef != null)
-                                        Padding(
-                                          padding: const EdgeInsets.only(top: 2),
-                                          child: Text(
-                                            entry.gitlabRef!,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 10,
-                                              color: IdeaColors.textSecondary,
-                                            ),
-                                          ),
-                                        ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        _formatArchiveDate(entry.createdAt),
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: IdeaColors.textSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
+                        child: _GroupedBuildHistoryList(
+                          entries: entries,
+                          selectedEntryId: selectedEntryId,
+                          l10n: l10n,
+                          onSelect: onSelect,
                         ),
                       ),
                       const VerticalDivider(width: 1),
@@ -1408,151 +1920,498 @@ class _BuildHistoryPanel extends StatelessWidget {
                                       Theme.of(context).textTheme.bodySmall,
                                 ),
                               )
-                            : Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      0,
-                                      12,
-                                      8,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            '${selected.configName} · v${selected.projectVersion}',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .labelLarge,
-                                          ),
-                                        ),
-                                        if (selected.isLocal)
-                                          TextButton.icon(
-                                            onPressed: () => onOpenFolder(
-                                              selected.artifactsDirectory!,
-                                            ),
-                                            icon: const Icon(Icons.folder_open,
-                                                size: 14),
-                                            label: Text(
-                                              l10n.buildsOpenArchiveFolder,
-                                            ),
-                                          ),
-                                        if (selected.isGitLab) ...[
-                                          TextButton.icon(
-                                            onPressed: selected.gitlabJobWebUrl ==
-                                                    null
-                                                ? null
-                                                : () => onOpenUrl(
-                                                      selected.gitlabJobWebUrl!,
-                                                    ),
-                                            icon: const Icon(Icons.open_in_new,
-                                                size: 14),
-                                            label: Text(l10n.buildsOpenInGitLab),
-                                          ),
-                                          TextButton.icon(
-                                            onPressed:
-                                                selected.gitlabArtifactsDownloadUrl ==
-                                                        null
-                                                    ? null
-                                                    : () => onOpenUrl(
-                                                          selected
-                                                              .gitlabArtifactsDownloadUrl!,
-                                                        ),
-                                            icon: const Icon(Icons.download,
-                                                size: 14),
-                                            label: Text(
-                                              l10n.buildsDownloadArtifacts,
-                                            ),
-                                          ),
-                                        ],
-                                        if (selected.isLocal)
-                                          IconButton(
-                                            tooltip: l10n.buildsDeleteArchive,
-                                            onPressed: () =>
-                                                onDeleteLocal(selected),
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              size: 16,
-                                              color: IdeaColors.error,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                    ),
-                                    child: Text(
-                                      l10n.buildsHistoryFiles(
-                                        selected.artifactCount,
-                                      ),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Expanded(
-                                    child: ListView.builder(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        12,
-                                        0,
-                                        12,
-                                        12,
-                                      ),
-                                      itemCount: selected.artifactFiles.length,
-                                      itemBuilder: (context, index) {
-                                        final file =
-                                            selected.artifactFiles[index];
-                                        return ListTile(
-                                          dense: true,
-                                          visualDensity: VisualDensity.compact,
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: const Icon(
-                                            Icons.insert_drive_file_outlined,
-                                            size: 14,
-                                            color: IdeaColors.textSecondary,
-                                          ),
-                                          title: Text(
-                                            file,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontFamily: 'Consolas',
-                                              fontSize: 10,
-                                              color: IdeaColors.textPrimary,
-                                            ),
-                                          ),
-                                          onTap: () {
-                                            if (selected.isLocal) {
-                                              onOpenFolder(
-                                                p.join(
-                                                  selected.artifactsDirectory!,
-                                                  file,
-                                                ),
-                                              );
-                                              return;
-                                            }
-                                            final url = selected
-                                                .gitlabArtifactFileWebUrl(file);
-                                            if (url != null) {
-                                              onOpenUrl(url);
-                                            }
-                                          },
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
+                            : _BuildHistoryDetailPanel(
+                                entry: selected,
+                                l10n: l10n,
+                                onOpenFolder: onOpenFolder,
+                                onOpenUrl: onOpenUrl,
+                                onDeleteLocal: onDeleteLocal,
+                                onLoadGitLabArtifacts: onLoadGitLabArtifacts,
                               ),
                       ),
                     ],
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryPageTabs extends StatelessWidget {
+  const _HistoryPageTabs({
+    required this.l10n,
+    required this.currentPage,
+    required this.totalPages,
+    required this.isLoading,
+    required this.onPageSelected,
+  });
+
+  final AppLocalizations l10n;
+  final int currentPage;
+  final int totalPages;
+  final bool isLoading;
+  final ValueChanged<int> onPageSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          tooltip: l10n.buildsHistoryPreviousPage,
+          onPressed: !isLoading && currentPage > 1
+              ? () => onPageSelected(currentPage - 1)
+              : null,
+          icon: const Icon(Icons.chevron_left, size: 18),
+          visualDensity: VisualDensity.compact,
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var page = 1; page <= totalPages; page++)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                      label: Text('$page'),
+                      selected: page == currentPage,
+                      onSelected: isLoading
+                          ? null
+                          : (_) => onPageSelected(page),
+                      visualDensity: VisualDensity.compact,
+                      labelStyle: TextStyle(
+                        fontSize: 11,
+                        color: page == currentPage
+                            ? IdeaColors.textBright
+                            : IdeaColors.textSecondary,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        IconButton(
+          tooltip: l10n.buildsHistoryNextPage,
+          onPressed: !isLoading && currentPage < totalPages
+              ? () => onPageSelected(currentPage + 1)
+              : null,
+          icon: const Icon(Icons.chevron_right, size: 18),
+          visualDensity: VisualDensity.compact,
+        ),
+        Text(
+          l10n.buildsHistoryPageInfo(currentPage, totalPages),
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupedBuildHistoryList extends StatelessWidget {
+  const _GroupedBuildHistoryList({
+    required this.entries,
+    required this.selectedEntryId,
+    required this.l10n,
+    required this.onSelect,
+  });
+
+  final List<BuildHistoryEntry> entries;
+  final String? selectedEntryId;
+  final AppLocalizations l10n;
+  final ValueChanged<String> onSelect;
+
+  Map<String, List<BuildHistoryEntry>> _groupByPlatform() {
+    final grouped = <String, List<BuildHistoryEntry>>{};
+    for (final entry in entries) {
+      final label = _normalizePlatformLabel(entry.platform);
+      grouped.putIfAbsent(label, () => []).add(entry);
+    }
+    for (final items in grouped.values) {
+      sortBuildHistoryEntries(items);
+    }
+    return grouped;
+  }
+
+  List<String> _orderedPlatforms(Map<String, List<BuildHistoryEntry>> grouped) {
+    final ordered = _platformDisplayOrder
+        .where((platform) => grouped.containsKey(platform))
+        .toList();
+    for (final platform in grouped.keys) {
+      if (!ordered.contains(platform)) ordered.add(platform);
+    }
+    return ordered;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final grouped = _groupByPlatform();
+    final platforms = _orderedPlatforms(grouped);
+
+    return CustomScrollView(
+      slivers: [
+        for (final platform in platforms) ...[
+          SliverToBoxAdapter(
+            child: _PlatformSectionHeader(
+              label: platform,
+              icon: _platformIcon(platform),
+              color: _platformColor(platform),
+              count: grouped[platform]!.length,
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final entry = grouped[platform]![index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _BuildHistoryTile(
+                      entry: entry,
+                      isSelected: entry.id == selectedEntryId,
+                      l10n: l10n,
+                      platformColor: _platformColor(platform),
+                      platformIcon: _platformIcon(platform),
+                      onTap: () => onSelect(entry.id),
+                    ),
+                  );
+                },
+                childCount: grouped[platform]!.length,
+              ),
+            ),
+          ),
+        ],
+        const SliverToBoxAdapter(child: SizedBox(height: 4)),
+      ],
+    );
+  }
+}
+
+class _BuildHistoryTile extends StatelessWidget {
+  const _BuildHistoryTile({
+    required this.entry,
+    required this.isSelected,
+    required this.l10n,
+    required this.platformColor,
+    required this.platformIcon,
+    required this.onTap,
+  });
+
+  final BuildHistoryEntry entry;
+  final bool isSelected;
+  final AppLocalizations l10n;
+  final Color platformColor;
+  final IconData platformIcon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasVersion = _hasKnownVersion(entry.projectVersion);
+    final primaryLabel =
+        hasVersion ? 'v${entry.projectVersion}' : entry.configName;
+
+    return Material(
+      color: isSelected
+          ? IdeaColors.accent.withValues(alpha: 0.06)
+          : IdeaColors.sidebar,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: isSelected ? IdeaColors.accent : IdeaColors.panelBorder,
+          width: isSelected ? 1.5 : 1,
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: platformColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: platformColor.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Icon(platformIcon, size: 17, color: platformColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            primaryLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: IdeaColors.textBright,
+                            ),
+                          ),
+                        ),
+                        _HistorySourceBadge(
+                          label: entry.isLocal
+                              ? l10n.buildsHistorySourceLocal
+                              : l10n.buildsHistorySourceGitLab,
+                          color: entry.isLocal
+                              ? IdeaColors.success
+                              : IdeaColors.accent,
+                        ),
+                      ],
+                    ),
+                    if (hasVersion) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        entry.configName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: IdeaColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                    if (entry.isGitLab && entry.gitlabRef != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          entry.gitlabRef!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: IdeaColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatArchiveDate(entry.createdAt),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: IdeaColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BuildHistoryDetailPanel extends StatefulWidget {
+  const _BuildHistoryDetailPanel({
+    required this.entry,
+    required this.l10n,
+    required this.onOpenFolder,
+    required this.onOpenUrl,
+    required this.onDeleteLocal,
+    required this.onLoadGitLabArtifacts,
+  });
+
+  final BuildHistoryEntry entry;
+  final AppLocalizations l10n;
+  final Future<void> Function(String path) onOpenFolder;
+  final Future<void> Function(String url) onOpenUrl;
+  final ValueChanged<BuildHistoryEntry> onDeleteLocal;
+  final Future<List<String>> Function(BuildHistoryEntry entry)
+      onLoadGitLabArtifacts;
+
+  @override
+  State<_BuildHistoryDetailPanel> createState() =>
+      _BuildHistoryDetailPanelState();
+}
+
+class _BuildHistoryDetailPanelState extends State<_BuildHistoryDetailPanel> {
+  List<String>? _artifactFiles;
+  bool _loadingArtifacts = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _artifactFiles = widget.entry.artifactFiles;
+    _maybeLoadArtifacts();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BuildHistoryDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entry.id != widget.entry.id) {
+      _artifactFiles = widget.entry.artifactFiles;
+      _maybeLoadArtifacts();
+    }
+  }
+
+  Future<void> _maybeLoadArtifacts() async {
+    if (!widget.entry.needsGitLabArtifactDetailLoad) return;
+
+    setState(() => _loadingArtifacts = true);
+    try {
+      final entryId = widget.entry.id;
+      final files = await widget.onLoadGitLabArtifacts(widget.entry);
+      if (!mounted || widget.entry.id != entryId) return;
+      if (files.isNotEmpty) {
+        setState(() => _artifactFiles = files);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingArtifacts = false);
+      }
+    }
+  }
+
+  List<String> get _displayFiles =>
+      _artifactFiles ?? widget.entry.artifactFiles;
+
+  @override
+  Widget build(BuildContext context) {
+    final entry = widget.entry;
+    final l10n = widget.l10n;
+    final onOpenFolder = widget.onOpenFolder;
+    final onOpenUrl = widget.onOpenUrl;
+    final onDeleteLocal = widget.onDeleteLocal;
+
+    return ColoredBox(
+      color: IdeaColors.sidebar,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _historyDetailTitle(entry),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                if (entry.isLocal)
+                  TextButton.icon(
+                    onPressed: () => onOpenFolder(entry.artifactsDirectory!),
+                    icon: const Icon(Icons.folder_open, size: 14),
+                    label: Text(l10n.buildsOpenArchiveFolder),
+                  ),
+                if (entry.isGitLab) ...[
+                  TextButton.icon(
+                    onPressed: entry.gitlabJobWebUrl == null
+                        ? null
+                        : () => onOpenUrl(entry.gitlabJobWebUrl!),
+                    icon: const Icon(Icons.open_in_new, size: 14),
+                    label: Text(l10n.buildsOpenInGitLab),
+                  ),
+                  TextButton.icon(
+                    onPressed: entry.gitlabArtifactsDownloadUrl == null
+                        ? null
+                        : () => onOpenUrl(entry.gitlabArtifactsDownloadUrl!),
+                    icon: const Icon(Icons.download, size: 14),
+                    label: Text(l10n.buildsDownloadArtifacts),
+                  ),
+                ],
+                if (entry.isLocal)
+                  IconButton(
+                    tooltip: l10n.buildsDeleteArchive,
+                    onPressed: () => onDeleteLocal(entry),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 16,
+                      color: IdeaColors.error,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Text(
+                  l10n.buildsHistoryFiles(_displayFiles.length),
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+                if (_loadingArtifacts) ...[
+                  const SizedBox(width: 8),
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: IdeaColors.accent,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              itemCount: _displayFiles.length,
+              itemBuilder: (context, index) {
+                final file = _displayFiles[index];
+                return Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      if (entry.isLocal) {
+                        onOpenFolder(
+                          p.join(entry.artifactsDirectory!, file),
+                        );
+                        return;
+                      }
+                      final url = entry.gitlabArtifactFileWebUrl(file);
+                      if (url != null) onOpenUrl(url);
+                    },
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.insert_drive_file_outlined,
+                            size: 14,
+                            color: IdeaColors.textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              file,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontFamily: 'Consolas',
+                                fontSize: 10,
+                                color: IdeaColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
@@ -1594,6 +2453,82 @@ String _historyFilterLabel(AppLocalizations l10n, _HistoryFilter filter) {
   };
 }
 
+String _platformLabel(ProjectBuildConfig config) {
+  final haystack =
+      '${config.name} ${config.displayCommand}'.toLowerCase();
+
+  for (final entry in kFlutterPlatformFolders.entries) {
+    if (haystack.contains(entry.key) ||
+        haystack.contains(entry.value.toLowerCase())) {
+      return entry.value;
+    }
+  }
+  if (haystack.contains('apk') ||
+      haystack.contains('appbundle') ||
+      haystack.contains('android')) {
+    return 'Android';
+  }
+  if (config.isGitLabCiJob) return 'GitLab CI';
+  return 'Other';
+}
+
+String _normalizePlatformLabel(String platform) {
+  final lower = platform.trim().toLowerCase();
+  for (final entry in kFlutterPlatformFolders.entries) {
+    if (lower == entry.key || lower == entry.value.toLowerCase()) {
+      return entry.value;
+    }
+  }
+  if (lower == 'gitlab ci' || lower == 'gitlab') return 'GitLab CI';
+  if (lower.isEmpty || lower == 'other') return 'Other';
+  return platform;
+}
+
+String _buildConfigDedupeKey(ProjectBuildConfig config) {
+  return config.name
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[\s:_-]+'), '');
+}
+
+bool _hasKnownVersion(String version) {
+  final normalized = version.trim().toLowerCase();
+  return normalized.isNotEmpty && normalized != 'unknown';
+}
+
+String _historyDetailTitle(BuildHistoryEntry entry) {
+  if (_hasKnownVersion(entry.projectVersion)) {
+    return '${entry.configName} · v${entry.projectVersion}';
+  }
+  return entry.configName;
+}
+
+IconData _platformIcon(String platform) {
+  return switch (platform) {
+    'Android' => Icons.android,
+    'iOS' => Icons.phone_iphone,
+    'Windows' => Icons.desktop_windows_outlined,
+    'Web' => Icons.language,
+    'Linux' => Icons.computer_outlined,
+    'macOS' => Icons.laptop_mac_outlined,
+    'GitLab CI' => Icons.cloud_outlined,
+    _ => Icons.build_outlined,
+  };
+}
+
+Color _platformColor(String platform) {
+  return switch (platform) {
+    'Android' => const Color(0xFF3DDC84),
+    'iOS' => const Color(0xFF8E8E93),
+    'Windows' => const Color(0xFF0078D4),
+    'Web' => const Color(0xFFFF9800),
+    'Linux' => const Color(0xFFFFC107),
+    'macOS' => const Color(0xFFA2AAAD),
+    'GitLab CI' => const Color(0xFFFC6D26),
+    _ => IdeaColors.textSecondary,
+  };
+}
+
 String _formatArchiveDate(DateTime dateTime) {
   final local = dateTime.toLocal();
   final year = local.year.toString().padLeft(4, '0');
@@ -1602,4 +2537,18 @@ String _formatArchiveDate(DateTime dateTime) {
   final hour = local.hour.toString().padLeft(2, '0');
   final minute = local.minute.toString().padLeft(2, '0');
   return '$year-$month-$day $hour:$minute';
+}
+
+class _CachedGitLabHistoryPage {
+  const _CachedGitLabHistoryPage({
+    required this.entries,
+    required this.totalPages,
+    required this.yamlJobCount,
+    this.error,
+  });
+
+  final List<BuildHistoryEntry> entries;
+  final int totalPages;
+  final int yamlJobCount;
+  final String? error;
 }

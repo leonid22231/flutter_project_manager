@@ -294,7 +294,7 @@ String? extractClassBody(String content, String className) {
       }
     }
   }
-  return null;
+  return null; 
 }
 
 List<MediaUsageEntry> parseMediaUsagesInFile({
@@ -308,7 +308,6 @@ List<MediaUsageEntry> parseMediaUsagesInFile({
   for (final match in methodCallPattern.allMatches(content)) {
     final reference = match.group(1)!;
     final className = reference.split('.').first;
-    final methodName = match.group(2)!;
     if (!isAssetsClassName(className)) continue;
     if (_isDefinitionLine(content, match.start)) continue;
 

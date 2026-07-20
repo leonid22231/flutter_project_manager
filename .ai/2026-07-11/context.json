@@ -1,0 +1,13 @@
+{
+  "id": "2026-07-11",
+  "title": "Project context file + Analysis tab Q&A",
+  "status": "completed",
+  "updated_at": "2026-07-11T03:35:00+07:00",
+  "tags": ["analysis", "cursor-cli", "project-context"],
+  "summary": "Генерация .ai/project-context.json из всех собранных данных; вкладка Анализ с Q&A через Cursor Agent CLI.",
+  "steps": [
+    "ProjectContextService — metadata, deps, widgets, media, git, builds, docs, file tree",
+    "CursorCliProjectQaService — ask mode с контекстом из project-context.json",
+    "AnalysisView — авто-сборка контекста, чат, пересборка, лог CLI"
+  ]
+}

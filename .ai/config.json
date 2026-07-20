@@ -1,0 +1,8 @@
+{
+  "output_format": "markdown",
+  "log_level": "normal",
+  "backup_policy": "on-update",
+  "default_conflict_policy": "stop",
+  "session_folder_format": "YYYY-MM-DD",
+  "require_task_id": false
+}

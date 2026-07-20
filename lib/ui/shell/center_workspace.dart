@@ -4,7 +4,8 @@ import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/l10n/l10n_extensions.dart';
 import 'package:project_manager/state/project_manager_state.dart';
-import 'package:project_manager/ui/views/analysis_placeholder_view.dart';
+import 'package:project_manager/ui/views/agent_view.dart';
+import 'package:project_manager/ui/views/analysis_view.dart';
 import 'package:project_manager/ui/views/builds_view.dart';
 import 'package:project_manager/ui/views/dependencies_view.dart';
 import 'package:project_manager/ui/views/documentation_view.dart';
@@ -67,8 +68,8 @@ class CenterWorkspace extends StatelessWidget {
                       WorkspaceTab.media => const MediaView(),
                       WorkspaceTab.gitlab => const GitLabView(),
                       WorkspaceTab.builds => const BuildsView(),
-                      WorkspaceTab.analysis =>
-                        AnalysisPlaceholderView(project: project),
+                      WorkspaceTab.analysis => const AnalysisView(),
+                      WorkspaceTab.agent => const AgentView(),
                     },
         ),
       ],

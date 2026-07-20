@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/models/widget_origin.dart';
+import 'package:project_manager/models/widget_constructor_param.dart';
 import 'package:project_manager/services/widget_analyzer_service.dart';
 
 void main() {
@@ -76,11 +77,17 @@ class HomeScreen extends StatelessWidget {
     final custom = widgets.firstWhere((w) => w.name == 'PrimaryButton');
     expect(custom.origin, WidgetOrigin.custom);
     expect(custom.filePath, 'lib/ui/primary_button.dart');
-    expect(custom.constructorParams, contains('label'));
-    expect(custom.constructorParams, contains('onPressed'));
+    expect(custom.constructorParams.map((p) => p.name), contains('label'));
+    expect(custom.constructorParams.map((p) => p.name), contains('onPressed'));
+    expect(
+      custom.constructorParams.singleWhere((p) => p.name == 'label').kind,
+      WidgetParamKind.named,
+    );
     expect(custom.description, contains('Primary action button'));
     expect(custom.usages, isNotEmpty);
     expect(custom.usages.first.filePath, 'lib/ui/home_screen.dart');
+    expect(custom.usages.any((u) => u.filePath == 'lib/ui/primary_button.dart'),
+        isFalse);
 
     final text = widgets.firstWhere((w) => w.name == 'Text');
     expect(text.origin, WidgetOrigin.library);

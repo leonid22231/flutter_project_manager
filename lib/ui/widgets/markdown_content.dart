@@ -9,21 +9,33 @@ class MarkdownContent extends StatelessWidget {
     required this.data,
     this.selectable = true,
     this.padding = const EdgeInsets.all(16),
+    this.compact = false,
   });
 
   final String data;
   final bool selectable;
   final EdgeInsets padding;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final base = ideaMarkdownStyleSheet(context);
+    final styleSheet = compact
+        ? base.copyWith(
+            p: base.p?.copyWith(fontSize: 11, height: 1.35),
+            h3: base.h3?.copyWith(fontSize: 12),
+            listBullet: base.listBullet?.copyWith(fontSize: 11),
+            code: base.code?.copyWith(fontSize: 10),
+          )
+        : base;
+
     return Padding(
       padding: padding,
       child: MarkdownBody(
         data: data,
         selectable: selectable,
         extensionSet: md.ExtensionSet.gitHubWeb,
-        styleSheet: ideaMarkdownStyleSheet(context),
+        styleSheet: styleSheet,
       ),
     );
   }

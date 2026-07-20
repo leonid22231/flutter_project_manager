@@ -57,6 +57,18 @@ class ProjectOverviewView extends StatelessWidget {
                 icon: const Icon(Icons.code, size: 16),
                 label: Text(l10n.openInVsCode),
               ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final opened = await openInCursor(project.path);
+                  if (!context.mounted || opened) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(l10n.openInCursorFailed)),
+                  );
+                },
+                icon: const Icon(Icons.terminal, size: 16),
+                label: Text(l10n.openInCursor),
+              ),
             ],          ),
           const SizedBox(height: 24),
           _InfoGrid(project: project),

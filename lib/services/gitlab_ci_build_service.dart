@@ -2,7 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:project_manager/core/utils/build_history_sort_utils.dart';
 import 'package:project_manager/core/utils/build_version_utils.dart';
+import 'package:project_manager/core/utils/gitlab_pagination_utils.dart';
 import 'package:project_manager/core/utils/gitlab_artifact_metadata_parser.dart';
 import 'package:project_manager/core/utils/zip_central_directory.dart';
 import 'package:project_manager/models/build_config_source.dart';
@@ -12,6 +14,7 @@ import 'package:project_manager/models/gitlab_check_result.dart';
 import 'package:project_manager/models/gitlab_ci_build.dart';
 import 'package:project_manager/models/gitlab_settings.dart';
 import 'package:project_manager/models/project_build_config.dart';
+import 'package:project_manager/services/build_history_logger.dart';
 import 'package:project_manager/services/gitlab_api_service.dart';
 import 'package:project_manager/services/gitlab_ci_config_parser.dart';
 
@@ -20,6 +23,15 @@ class GitLabCiBuildService {
       : _api = api ?? GitLabApiService();
 
   final GitLabApiService _api;
+  final _log = BuildHistoryLogger.instance;
+  final Map<String, List<String>> _yamlJobNamesCache = {};
+
+  /// How many build results the history UI shows per page.
+  static const defaultBuildsPerPage = 10;
+
+  /// How many GitLab jobs we fetch per API request while scanning history.
+  static const gitlabJobsPerRequest = 50;
+  static const _artifactLoadConcurrency = 4;
 
   Future<List<ProjectBuildConfig>> listCiJobConfigs({
     required GitLabSettings settings,
@@ -117,7 +129,8 @@ class GitLabCiBuildService {
     required GitLabCheckResult? connection,
     required GitRepositoryStatus? gitStatus,
     required String projectRoot,
-    int perPage = 50,
+    int page = 1,
+    int buildsPerPage = defaultBuildsPerPage,
   }) async {
     if (!settings.enabled) {
       return const GitLabCiBuildsResult();
@@ -139,97 +152,279 @@ class GitLabCiBuildService {
       projectRoot: projectRoot,
     );
     final encodedProject = _api.encodeProjectPath(gitStatus.gitlabProjectPath!);
+    final stopwatch = Stopwatch()..start();
+
+    _log.info(
+      'listBuilds request',
+      source: 'gitlab-ci-builds',
+      data: {
+        'projectRoot': projectRoot,
+        'page': page,
+        'buildsPerPage': buildsPerPage,
+        'project': gitStatus.gitlabProjectPath,
+        'yamlBuildJobs': yamlBuildJobs.length,
+      },
+    );
 
     try {
-      final response = await _api.getJson(
-        settings: settings,
-        path: '/api/v4/projects/$encodedProject/jobs',
-        query: {
-          'scope': 'success',
-          'per_page': '$perPage',
-        },
-      );
+      final skip = (page - 1) * buildsPerPage;
+      var metadataSkipped = 0;
+      final pageJobs = <Map<String, dynamic>>[];
+      var gitlabJobPage = 1;
+      var hasMoreGitlabJobs = true;
+      var leftoverCandidates = false;
+      var scannedRawJobs = 0;
+      var skippedNoArtifacts = 0;
+      var skippedStage = 0;
+      var skippedJobName = 0;
+      var skippedNoArtifactFiles = 0;
+      var skippedNoArtifactHint = 0;
 
-      if (response.statusCode == 404) {
-        return const GitLabCiBuildsResult(
-          error: 'GitLab project was not found or access is denied.',
-        );
-      }
-      if (response.statusCode != 200) {
-        return GitLabCiBuildsResult(
-          error: _readApiError(response) ??
-              'GitLab API error (${response.statusCode}).',
-        );
-      }
+      final yamlBuildJobSet = yamlBuildJobs.toSet();
 
-      final decoded = jsonDecode(response.body);
-      if (decoded is! List) {
-        return const GitLabCiBuildsResult(
-          error: 'Unexpected GitLab API response.',
+      while (pageJobs.length < buildsPerPage && hasMoreGitlabJobs) {
+        final response = await _api.getJson(
+          settings: settings,
+          path: '/api/v4/projects/$encodedProject/jobs',
+          query: {
+            'scope': 'success',
+            'per_page': '$gitlabJobsPerRequest',
+            'page': '$gitlabJobPage',
+          },
         );
+
+        if (response.statusCode == 404) {
+          return const GitLabCiBuildsResult(
+            error: 'GitLab project was not found or access is denied.',
+          );
+        }
+        if (response.statusCode != 200) {
+          return GitLabCiBuildsResult(
+            error: _readApiError(response) ??
+                'GitLab API error (${response.statusCode}).',
+          );
+        }
+
+        final decoded = jsonDecode(response.body);
+        if (decoded is! List) {
+          return const GitLabCiBuildsResult(
+            error: 'Unexpected GitLab API response.',
+          );
+        }
+
+        scannedRawJobs += decoded.length;
+        final candidates = <Map<String, dynamic>>[];
+        for (final item in decoded) {
+          if (item is! Map) continue;
+          final job = Map<String, dynamic>.from(item);
+          if (!_jobHasArchiveArtifacts(job)) {
+            skippedNoArtifacts++;
+            continue;
+          }
+
+          final jobName = job['name'] as String? ?? '';
+          final jobStage = job['stage'] as String? ?? '';
+          if (jobStage.isNotEmpty && jobStage != gitLabBuildStageName) {
+            skippedStage++;
+            continue;
+          }
+          if (!_shouldIncludeJob(jobName, yamlBuildJobSet)) {
+            skippedJobName++;
+            continue;
+          }
+
+          final jobId = job['id'] as int?;
+          if (jobId == null) continue;
+
+          candidates.add(job);
+        }
+
+        var candidateIndex = 0;
+        for (; candidateIndex < candidates.length; candidateIndex++) {
+          final job = candidates[candidateIndex];
+          if (!_hasQuickArtifactHint(job)) {
+            skippedNoArtifactHint++;
+            continue;
+          }
+
+          if (metadataSkipped < skip) {
+            metadataSkipped++;
+            continue;
+          }
+
+          pageJobs.add(job);
+          if (pageJobs.length >= buildsPerPage) {
+            candidateIndex++;
+            break;
+          }
+        }
+
+        leftoverCandidates = candidateIndex < candidates.length;
+        final pagination = parseGitLabPagination(
+          headers: response.headers,
+          requestedPage: gitlabJobPage,
+          requestedPerPage: gitlabJobsPerRequest,
+          rawItemCount: decoded.length,
+        );
+        hasMoreGitlabJobs = pagination.hasNextPage;
+        gitlabJobPage++;
       }
 
       final builds = <GitLabCiBuild>[];
-      for (final item in decoded) {
-        if (item is! Map) continue;
-        final job = Map<String, dynamic>.from(item);
-        if (!_jobHasArchiveArtifacts(job)) continue;
-
-        final jobName = job['name'] as String? ?? '';
-        if (!_shouldIncludeJob(jobName, yamlBuildJobs.toSet())) continue;
-
-        final jobId = job['id'] as int?;
-        if (jobId == null) continue;
-
-        final projectRef = _projectRefForJob(job, encodedProject);
-
-        final artifactFiles = await _loadArtifactFiles(
-          settings: settings,
-          projectRef: projectRef,
-          jobId: jobId,
-          job: job,
+      for (var index = 0; index < pageJobs.length; index += _artifactLoadConcurrency) {
+        final batchEnd = (index + _artifactLoadConcurrency).clamp(
+          0,
+          pageJobs.length,
         );
-        if (artifactFiles.isEmpty) continue;
-
-        final version = parseVersionFromBuildNames(artifactFiles) ??
-            parseVersionFromBuildName(jobName) ??
-            'unknown';
-        final platform = detectPlatformFromBuildContext(
-          jobName: jobName,
-          artifactPaths: artifactFiles,
-        );
-        final pipeline = job['pipeline'];
-        final pipelineId = pipeline is Map
-            ? pipeline['id'] as int? ?? 0
-            : 0;
-        final createdAt = DateTime.tryParse(job['finished_at'] as String? ?? '') ??
-            DateTime.tryParse(job['created_at'] as String? ?? '') ??
-            DateTime.now();
-
-        builds.add(
-          GitLabCiBuild(
-            jobId: jobId,
-            jobName: jobName,
-            createdAt: createdAt,
-            projectVersion: version,
-            platform: platform,
-            artifactFiles: artifactFiles,
-            webUrl: job['web_url'] as String? ?? '',
-            ref: job['ref'] as String? ?? '',
-            pipelineId: pipelineId,
-            stage: job['stage'] as String? ?? '',
+        final batch = pageJobs.sublist(index, batchEnd);
+        final batchBuilds = await Future.wait(
+          batch.map(
+            (job) => _buildFromJob(
+              settings: settings,
+              job: job,
+              encodedProject: encodedProject,
+            ),
           ),
         );
+        for (final build in batchBuilds) {
+          if (build == null) {
+            skippedNoArtifactFiles++;
+            continue;
+          }
+          builds.add(build);
+        }
       }
 
-      builds.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      sortGitLabCiBuilds(builds);
+
+      final hasNextPage = pageJobs.length >= buildsPerPage &&
+          (leftoverCandidates || hasMoreGitlabJobs);
+      final totalPages = builds.length < buildsPerPage
+          ? page
+          : (hasNextPage ? page + 1 : page);
+
+      _log.info(
+        'listBuilds response',
+        source: 'gitlab-ci-builds',
+        data: {
+          'status': 200,
+          'scannedRawJobs': scannedRawJobs,
+          'skipped': skip,
+          'metadataSkipped': metadataSkipped,
+          'pageJobsSelected': pageJobs.length,
+          'artifactLoads': pageJobs.length,
+          'builds': builds.length,
+          'skippedNoArtifacts': skippedNoArtifacts,
+          'skippedStage': skippedStage,
+          'skippedJobName': skippedJobName,
+          'skippedNoArtifactHint': skippedNoArtifactHint,
+          'skippedNoArtifactFiles': skippedNoArtifactFiles,
+          'elapsedMs': stopwatch.elapsedMilliseconds,
+          'page': page,
+          'buildsPerPage': buildsPerPage,
+          'totalPages': totalPages,
+          'hasNextPage': hasNextPage,
+        },
+      );
+
       return GitLabCiBuildsResult(
         builds: builds,
         buildJobNames: yamlBuildJobs,
+        currentPage: page,
+        totalPages: totalPages,
+        rawJobCount: scannedRawJobs,
+        hasNextPage: hasNextPage,
       );
     } catch (e) {
+      _log.error(
+        'listBuilds failed',
+        source: 'gitlab-ci-builds',
+        data: {
+          'projectRoot': projectRoot,
+          'error': '$e',
+          'elapsedMs': stopwatch.elapsedMilliseconds,
+        },
+      );
       return GitLabCiBuildsResult(error: '$e');
     }
+  }
+
+  Future<List<String>> loadArtifactFilesForJob({
+    required GitLabSettings settings,
+    required GitRepositoryStatus? gitStatus,
+    required int jobId,
+    required String projectRoot,
+  }) async {
+    if (!_canUseGitLabProject(gitStatus, settings)) return const [];
+
+    final encodedProject = _api.encodeProjectPath(gitStatus!.gitlabProjectPath!);
+    return _loadArtifactFiles(
+      settings: settings,
+      projectRef: encodedProject,
+      jobId: jobId,
+      job: const {},
+    );
+  }
+
+  bool _hasQuickArtifactHint(Map<String, dynamic> job) {
+    return _fallbackArtifactNames(job).isNotEmpty;
+  }
+
+  Future<GitLabCiBuild?> _buildFromJob({
+    required GitLabSettings settings,
+    required Map<String, dynamic> job,
+    required String encodedProject,
+  }) async {
+    final jobId = job['id'] as int?;
+    if (jobId == null) return null;
+
+    final jobName = job['name'] as String? ?? '';
+    final projectRef = _projectRefForJob(job, encodedProject);
+
+    final artifactFiles = await _loadArtifactFiles(
+      settings: settings,
+      projectRef: projectRef,
+      jobId: jobId,
+      job: job,
+    );
+    if (artifactFiles.isEmpty) return null;
+
+    final version = _resolveProjectVersion(
+      jobName: jobName,
+      artifactFiles: artifactFiles,
+    );
+    final platform = detectPlatformFromBuildContext(
+      jobName: jobName,
+      artifactPaths: artifactFiles,
+    );
+    final pipeline = job['pipeline'];
+    final pipelineId =
+        pipeline is Map ? pipeline['id'] as int? ?? 0 : 0;
+    final createdAt = DateTime.tryParse(job['finished_at'] as String? ?? '') ??
+        DateTime.tryParse(job['created_at'] as String? ?? '') ??
+        DateTime.now();
+
+    return GitLabCiBuild(
+      jobId: jobId,
+      jobName: jobName,
+      createdAt: createdAt,
+      projectVersion: version,
+      platform: platform,
+      artifactFiles: artifactFiles,
+      webUrl: job['web_url'] as String? ?? '',
+      ref: job['ref'] as String? ?? '',
+      pipelineId: pipelineId,
+      stage: job['stage'] as String? ?? '',
+    );
+  }
+
+  String _resolveProjectVersion({
+    required String jobName,
+    required List<String> artifactFiles,
+  }) {
+    return parseVersionFromBuildNames(artifactFiles) ??
+        parseVersionFromBuildName(jobName) ??
+        'unknown';
   }
 
   bool _canUseGitLabProject(
@@ -248,6 +443,9 @@ class GitLabCiBuildService {
     required GitRepositoryStatus gitStatus,
     required String projectRoot,
   }) async {
+    final cached = _yamlJobNamesCache[projectRoot];
+    if (cached != null) return cached;
+
     final localJobs = _readYamlBuildJobs(projectRoot);
     final lintJobs = await _lintCiJobNames(
       settings: settings,
@@ -256,11 +454,9 @@ class GitLabCiBuildService {
     );
 
     final jobs = <String>{...localJobs, ...lintJobs};
-    if (jobs.isNotEmpty) {
-      return jobs.toList()..sort();
-    }
-
-    return const [];
+    final resolved = jobs.isEmpty ? const <String>[] : (jobs.toList()..sort());
+    _yamlJobNamesCache[projectRoot] = resolved;
+    return resolved;
   }
 
   Future<Set<String>> _lintCiJobNames({
@@ -292,6 +488,10 @@ class GitLabCiBuildService {
         if (item is! Map) continue;
         final name = item['name']?.toString();
         if (name == null || name.isEmpty) continue;
+        final stage = item['stage']?.toString();
+        if (stage != null && stage.isNotEmpty && stage != gitLabBuildStageName) {
+          continue;
+        }
         if (looksLikeCiBuildJobName(name, const {}) ||
             _jobMapHasArtifacts(item)) {
           names.add(name);
@@ -345,7 +545,10 @@ class GitLabCiBuildService {
     return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
   }
 
-  String _projectRefForJob(Map<String, dynamic> job, String encodedProjectPath) {
+  String _projectRefForJob(
+    Map<String, dynamic> job,
+    String encodedProjectPath,
+  ) {
     final pipeline = job['pipeline'];
     if (pipeline is Map) {
       final projectId = pipeline['project_id'];
@@ -551,12 +754,12 @@ class GitLabCiBuildService {
   }
 
   List<String> _fallbackArtifactNames(Map<String, dynamic> job) {
-    final artifactsFile = job['artifacts_file'];
-    if (artifactsFile is Map) {
-      final filename = artifactsFile['filename'] as String?;
-      if (filename != null && filename.isNotEmpty) {
-        return [filename];
-      }
+    final names = <String>[];
+    final seen = <String>{};
+
+    void add(String? value) {
+      if (value == null || value.isEmpty) return;
+      if (seen.add(value)) names.add(value);
     }
 
     final artifacts = job['artifacts'];
@@ -564,15 +767,32 @@ class GitLabCiBuildService {
       for (final item in artifacts) {
         if (item is! Map) continue;
         if (item['file_type'] == 'archive') {
-          final filename = item['filename'] as String?;
-          if (filename != null && filename.isNotEmpty) {
-            return [filename];
-          }
+          add(item['filename'] as String?);
         }
       }
     }
 
-    return const [];
+    final artifactsFile = job['artifacts_file'];
+    if (artifactsFile is Map) {
+      add(artifactsFile['filename'] as String?);
+    }
+
+    if (names.isEmpty) return const [];
+
+    final versioned = names
+        .where(
+          (name) =>
+              !_isIgnoredArtifactListing(name) &&
+              parseVersionFromBuildName(name) != null,
+        )
+        .toList();
+    if (versioned.isNotEmpty) return versioned;
+
+    final named =
+        names.where((name) => !_isIgnoredArtifactListing(name)).toList();
+    if (named.isNotEmpty) return named;
+
+    return names;
   }
 
   bool _isIgnoredArtifactListing(String path) {

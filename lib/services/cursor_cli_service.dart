@@ -3,15 +3,24 @@ import 'dart:io';
 
 import 'package:project_manager/models/cursor_cli_check_result.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
+import 'package:project_manager/services/cursor_cli_logger.dart';
 
 class CursorCliService {
   Future<CursorCliCheckResult> checkConnection(CursorCliSettings settings) async {
+    final log = CursorCliLogger.instance;
     if (settings.cliCommand.trim().isEmpty) {
+      log.warn('CLI command is empty.', source: 'connection');
       return const CursorCliCheckResult(
         cliAvailable: false,
         error: 'CLI command is empty.',
       );
     }
+
+    log.info(
+      'Checking Cursor CLI connection.',
+      source: 'connection',
+      data: {'command': settings.cliCommand.trim()},
+    );
 
     final env = _buildEnvironment(settings);
 
@@ -22,6 +31,11 @@ class CursorCliService {
     );
 
     if (versionResult.exitCode != 0) {
+      log.error(
+        'CLI version check failed.',
+        source: 'connection',
+        data: {'exitCode': versionResult.exitCode},
+      );
       return CursorCliCheckResult(
         cliAvailable: false,
         error: _extractError(versionResult),
@@ -49,6 +63,16 @@ class CursorCliService {
         models = _parseModels(modelsResult.stdout);
       }
     }
+
+    log.info(
+      'Cursor CLI connected.',
+      source: 'connection',
+      data: {
+        'version': version,
+        'authenticated': authenticated,
+        'models': models.length,
+      },
+    );
 
     return CursorCliCheckResult(
       cliAvailable: true,

@@ -42,6 +42,13 @@ class BuildHistoryEntry {
 
   int get artifactCount => artifactFiles.length;
 
+  /// GitLab jobs often expose only `artifacts.zip` in the jobs list API.
+  /// Detailed file names are loaded on demand when the user opens a build.
+  bool get needsGitLabArtifactDetailLoad =>
+      isGitLab &&
+      artifactFiles.isNotEmpty &&
+      artifactFiles.every(_isGenericGitLabArchiveListing);
+
   String? get artifactsDirectory => localArchivePath == null
       ? null
       : '$localArchivePath${Platform.pathSeparator}artifacts';
@@ -87,4 +94,11 @@ class BuildHistoryEntry {
       gitlabPipelineId: build.pipelineId,
     );
   }
+}
+
+bool _isGenericGitLabArchiveListing(String path) {
+  final lower = path.trim().toLowerCase();
+  return lower == 'artifacts.zip' ||
+      lower == 'metadata.gz' ||
+      lower == 'job.log';
 }

@@ -17,6 +17,7 @@ const _versionArtifactExtensions = {
   '.ipa',
   '.dmg',
   '.app',
+  '.zip',
 };
 
 String? parseVersionFromBuildNames(Iterable<String> names) {
@@ -56,6 +57,14 @@ String? parseVersionFromBuildName(String name) {
   final normalized = name.replaceAll(r'\', '/');
   final fileName = normalized.split('/').last;
   if (_isIgnoredArtifactPath(fileName)) return null;
+
+  // Windows artifacts: fresh-dev_windows_25.0.0_1783671178.zip
+  final underscoreSuffix = RegExp(
+    r'(\d+\.\d+\.\d+(?:\.\d+)?)_(\d+)(?=\.|$)',
+  ).firstMatch(fileName);
+  if (underscoreSuffix != null) {
+    return '${underscoreSuffix.group(1)}-${underscoreSuffix.group(2)}';
+  }
 
   final match = _versionPattern.firstMatch(fileName);
   if (match != null) return match.group(1);

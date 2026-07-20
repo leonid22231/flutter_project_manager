@@ -1,0 +1,42 @@
+[
+  {
+    "id": "ai-storage-no-task-id",
+    "date": "2026-07-11",
+    "source": "user",
+    "summary": "В этом проекте сохранение в .ai не требует номера задачи — сохранять весь контекст, использовать дату/время вместо task id.",
+    "applied_rules": ["user-confirmed-rule"],
+    "notes": "Папки сессий: .ai/YYYY-MM-DD/ или .ai/YYYY-MM-DD-HHMMSS/. Не спрашивать task id."
+  },
+  {
+    "id": "builds-stage-build-only",
+    "date": "2026-07-11",
+    "source": "user",
+    "summary": "Вкладка сборок показывает только задачи стадии build; pre_build и analyze_and_test исключены из tasks.json и GitLab CI.",
+    "applied_rules": ["user-confirmed-rule"],
+    "notes": "Стадии: pre_build, analyze_and_test, build."
+  },
+  {
+    "id": "use-flutter-debug-log-fs-mcp",
+    "date": "2026-07-11",
+    "source": "user",
+    "summary": "Для отладки использовать MCP flutter-debug-log-fs: читать .ai/logs/flutter_debug.log и C:\\tmp\\debug-console-logs\\flutter_debug.log",
+    "applied_rules": ["user-confirmed-rule"],
+    "notes": "BuildHistoryLogger пишет в project_manager/.ai/logs/. Перезагрузить MCP после .cursor/mcp.json."
+  },
+  {
+    "id": "builds-history-page-tabs",
+    "date": "2026-07-11",
+    "source": "user",
+    "summary": "История сборок GitLab: пагинация через переключение вкладок/страниц, а не кнопку «Загрузить ещё» с дописыванием вниз.",
+    "applied_rules": ["user-confirmed-rule"],
+    "notes": "_HistoryPageTabs с ChoiceChip; _loadHistoryPage заменяет _history."
+  },
+  {
+    "id": "project-context-analysis-tab",
+    "date": "2026-07-11",
+    "source": "assistant",
+    "summary": "Вкладка Анализ: .ai/project-context.json из всех данных проекта; Q&A через Cursor CLI ask mode.",
+    "applied_rules": ["minimize-scope", "reuse-cursor-cli-pattern"],
+    "notes": "ProjectContextService + AnalysisView; placeholder удалён."
+  }
+]

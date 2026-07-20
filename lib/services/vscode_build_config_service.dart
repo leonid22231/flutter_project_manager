@@ -148,6 +148,8 @@ class VscodeBuildConfigService {
 
     final type = map['type']?.toString() ?? 'shell';
     final group = _taskGroupName(map['group']);
+    if (!_isBuildStageTask(group)) return null;
+
     final isBackground = map['isBackground'] == true;
     final cwd = map['options'] is Map
         ? map['options']['cwd']?.toString()
@@ -247,6 +249,13 @@ class VscodeBuildConfigService {
     if (group is String) return group;
     if (group is Map) return group['kind']?.toString();
     return null;
+  }
+
+  bool _isBuildStageTask(String? group) {
+    if (group == null || group.isEmpty) {
+      return true;
+    }
+    return group == 'build';
   }
 }
 

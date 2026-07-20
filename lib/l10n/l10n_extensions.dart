@@ -12,6 +12,7 @@ extension WorkspaceTabL10n on WorkspaceTab {
         WorkspaceTab.gitlab => l10n.tabGitlab,
         WorkspaceTab.builds => l10n.tabBuilds,
         WorkspaceTab.analysis => l10n.tabAnalysis,
+        WorkspaceTab.agent => l10n.tabAgent,
       };
 }
 

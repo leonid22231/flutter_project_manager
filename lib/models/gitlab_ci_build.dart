@@ -22,6 +22,24 @@ class GitLabCiBuild {
   final String ref;
   final int pipelineId;
   final String stage;
+
+  GitLabCiBuild copyWith({
+    String? projectVersion,
+    List<String>? artifactFiles,
+  }) {
+    return GitLabCiBuild(
+      jobId: jobId,
+      jobName: jobName,
+      createdAt: createdAt,
+      projectVersion: projectVersion ?? this.projectVersion,
+      platform: platform,
+      artifactFiles: artifactFiles ?? this.artifactFiles,
+      webUrl: webUrl,
+      ref: ref,
+      pipelineId: pipelineId,
+      stage: stage,
+    );
+  }
 }
 
 class GitLabCiBuildsResult {
@@ -29,11 +47,19 @@ class GitLabCiBuildsResult {
     this.builds = const [],
     this.buildJobNames = const [],
     this.error,
+    this.currentPage = 1,
+    this.totalPages = 1,
+    this.rawJobCount = 0,
+    this.hasNextPage = false,
   });
 
   final List<GitLabCiBuild> builds;
   final List<String> buildJobNames;
   final String? error;
+  final int currentPage;
+  final int totalPages;
+  final int rawJobCount;
+  final bool hasNextPage;
 }
 
 class GitLabPipelineTriggerResult {
