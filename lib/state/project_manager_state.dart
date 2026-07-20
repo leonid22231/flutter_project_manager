@@ -127,9 +127,9 @@ class ProjectManagerState extends ChangeNotifier {
   final Set<String> _autoCursorSyncDone = {};
   var _syncRunGeneration = 0;
 
-  static const _autoSyncCooldown = Duration(minutes: 2);
-  static const _projectSelectDebounce = Duration(seconds: 2);
-  static const _aiWatchDebounce = Duration(seconds: 15);
+  static const _autoSyncCooldown = Duration(minutes: 5);
+  static const _projectSelectDebounce = Duration(seconds: 3);
+  static const _aiWatchDebounce = Duration(seconds: 20);
   static const _postSyncSuppress = Duration(seconds: 5);
 
   List<Project> get projects => List.unmodifiable(_projects);
@@ -920,16 +920,15 @@ class ProjectManagerState extends ChangeNotifier {
     final projectId = project.id;
     final cursorSettings = await _settingsService.loadCursorCliSettings();
 
-    if (switchAuto) {
-      _autoCursorSyncDone.add(projectId);
-    }
-
     _suppressAiWatch = true;
     try {
       final status = await _contextSyncService.syncProject(
         project: project,
         syncSettings: syncSettings,
         cursorSettings: cursorSettings,
+        shouldContinue: () =>
+            generation == _syncRunGeneration &&
+            _selectedProject?.id == projectId,
         onStatus: (s) {
           if (generation != _syncRunGeneration) return;
           _contextSyncStatus = s;
@@ -937,8 +936,22 @@ class ProjectManagerState extends ChangeNotifier {
         },
       );
 
+      final cancelled = status.message == 'Sync cancelled';
+      if (cancelled) {
+        AppLogService.instance.info(
+          'Sync aborted cleanly (no push)',
+          source: 'context-sync',
+          data: {'reason': reason, 'projectId': projectId},
+        );
+        return;
+      }
+
       if (status.lastSyncedAt != null && !status.hasError) {
         _lastSuccessfulSyncAt[contextId] = status.lastSyncedAt!;
+        // Mark auto-done only after a real successful run for this project.
+        if (switchAuto) {
+          _autoCursorSyncDone.add(projectId);
+        }
       }
 
       if (generation != _syncRunGeneration ||

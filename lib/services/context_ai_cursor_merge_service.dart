@@ -8,6 +8,10 @@ import 'package:project_manager/services/context_ai_merge_service.dart';
 import 'package:project_manager/services/cursor_cli_flight.dart';
 
 /// Merges two `.ai` snapshots via Cursor CLI agent mode, with additive fallback.
+///
+/// Strategy: additive baseline first (fast, keeps all files), then Cursor
+/// refines only [conflictPaths] so multi-device context is merged intelligently
+/// without re-deriving the whole tree.
 class ContextAiCursorMergeService {
   ContextAiCursorMergeService({
     CursorCliStreamRunner? runner,
@@ -28,6 +32,7 @@ class ContextAiCursorMergeService {
     required Directory remoteDir,
     required Directory workRoot,
     required CursorCliSettings settings,
+    List<String> conflictPaths = const [],
   }) async {
     final localSnap = Directory(p.join(workRoot.path, 'local'));
     final remoteSnap = Directory(p.join(workRoot.path, 'remote'));
@@ -35,35 +40,46 @@ class ContextAiCursorMergeService {
 
     await _copyTree(localDir, localSnap);
     await _copyTree(remoteDir, remoteSnap);
-    if (merged.existsSync()) {
-      merged.deleteSync(recursive: true);
-    }
-    merged.createSync(recursive: true);
+
+    // Always build a complete additive baseline first.
+    await _additive.mergeAdditive(
+      localDir: localSnap,
+      remoteDir: remoteSnap,
+      outputDir: merged,
+    );
 
     if (!settings.enabled) {
-      await _additive.mergeAdditive(
-        localDir: localSnap,
-        remoteDir: remoteSnap,
-        outputDir: merged,
-      );
       return merged;
     }
 
+    final conflicts = conflictPaths
+        .map((e) => e.replaceAll(r'\', '/'))
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+    final focusList = conflicts.isEmpty
+        ? '(all overlapping files that differ)'
+        : conflicts.take(40).map((e) => '- $e').join('\n');
+
     final prompt = '''
-You are merging two versions of a project `.ai` context folder so two devices stay in sync.
+You are merging two versions of a project `.ai` context folder so several devices stay in sync.
 
 Directories:
 - local/  — context from this device
 - remote/ — context from the shared GitHub sync repository
-- merged/ — WRITE the unified result here (create files as needed)
+- merged/ — already contains an additive baseline; REFINE it in place
+
+Priority conflicting paths (same relative path differs on both sides):
+$focusList
 
 Rules:
-1. Preserve all useful information from both sides (memories, knowledge, config, logs metadata, profiles).
-2. Prefer additive merges: union JSON keys/arrays by id when present; do not drop entries.
-3. For conflicting scalar values, keep the more complete / newer-looking content and note conflicts briefly in merged/MERGE_NOTES.md if needed.
-4. Output only under merged/. Mirror the relative file layout of .ai (no nested .ai folder).
-5. When done, ensure merged/ contains the full unified context.
+1. Preserve ALL useful information from both sides (memories, knowledge, profiles, config, session summaries). Never drop entries just because one side is newer.
+2. Prefer smart unions: for JSON arrays/objects merge by id/key; concatenate unique facts; keep the richer wording when scalars conflict.
+3. Rewrite ONLY the conflicting paths listed above under merged/ (create parents as needed). Leave other merged/ files untouched.
+4. Do not nest another `.ai` folder. Do not delete unrelated files in merged/.
+5. If a conflict cannot be resolved cleanly, keep both variants and briefly note it in merged/MERGE_NOTES.md.
 ''';
+
+    final beforeCount = _countFiles(merged);
 
     final result = await _flight.run(
       projectId: projectId,
@@ -80,30 +96,49 @@ Rules:
       ),
     );
 
-    final mergedFiles = merged.existsSync()
-        ? merged
-            .listSync(recursive: true)
-            .whereType<File>()
-            .where((f) => !p.basename(f.path).startsWith('.'))
-            .length
-        : 0;
+    final afterCount = _countFiles(merged);
+    final cursorOk = result != null && !result.failed && afterCount > 0;
 
-    final cursorOk = result != null && !result.failed && mergedFiles > 0;
     if (!cursorOk) {
       if (result == null) {
         _log.info(
-          'Cursor merge skipped by flight — additive fallback',
+          'Cursor merge skipped by flight — keeping additive baseline',
           source: 'context-sync-merge',
         );
+      } else if (result.failed) {
+        _log.info(
+          'Cursor merge failed — keeping additive baseline',
+          source: 'context-sync-merge',
+          data: {
+            'cancelled': result.cancelled,
+            'timedOut': result.timedOut || result.idleTimedOut,
+            'exitCode': result.exitCode,
+          },
+        );
       }
-      await _additive.mergeAdditive(
-        localDir: localSnap,
-        remoteDir: remoteSnap,
-        outputDir: merged,
+      // Baseline already in merged/; nothing else to do.
+    } else {
+      _log.info(
+        'Cursor refined conflicting paths',
+        source: 'context-sync-merge',
+        data: {
+          'conflicts': conflicts.length,
+          'filesBefore': beforeCount,
+          'filesAfter': afterCount,
+        },
       );
     }
 
     return merged;
+  }
+
+  int _countFiles(Directory root) {
+    if (!root.existsSync()) return 0;
+    return root
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => !p.basename(f.path).startsWith('.'))
+        .length;
   }
 
   Future<void> _copyTree(Directory source, Directory dest) async {

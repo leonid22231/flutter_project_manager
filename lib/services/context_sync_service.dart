@@ -16,10 +16,16 @@ import 'package:project_manager/services/context_sync_git_service.dart';
 
 typedef ContextSyncStatusCallback = void Function(ContextSyncStatus status);
 
+/// Returns false when the caller wants the sync aborted (e.g. project switched).
+typedef ContextSyncShouldContinue = bool Function();
+
 /// Orchestrates pull → diff → (merge → write → push) for a project.
 ///
 /// If local `.ai` already matches the remote context folder, sync stops after
 /// the diff (no Cursor merge, no write, no push).
+///
+/// Cursor is used only when the same paths differ on both sides (smart merge).
+/// Asymmetric adds use a fast additive merge.
 class ContextSyncService {
   ContextSyncService({
     ContextSyncGitService? git,
@@ -46,6 +52,7 @@ class ContextSyncService {
     required ContextSyncSettings syncSettings,
     required CursorCliSettings cursorSettings,
     ContextSyncStatusCallback? onStatus,
+    ContextSyncShouldContinue? shouldContinue,
   }) async {
     if (!syncSettings.isActive) {
       return const ContextSyncStatus(
@@ -78,6 +85,8 @@ class ContextSyncService {
       );
     }
 
+    bool stillActive() => shouldContinue?.call() ?? true;
+
     _syncing = true;
     _activeContextId = contextId;
     final started = DateTime.now();
@@ -97,6 +106,10 @@ class ContextSyncService {
     );
 
     try {
+      if (!stillActive()) {
+        return _cancelled(contextId, onStatus);
+      }
+
       final pullStarted = DateTime.now();
       final pull = await _git.pull(syncSettings.repoUrl);
       _log.info(
@@ -116,6 +129,10 @@ class ContextSyncService {
         );
         onStatus?.call(status);
         return status;
+      }
+
+      if (!stillActive()) {
+        return _cancelled(contextId, onStatus);
       }
 
       final cloneDir = await _git.getCloneDirectory();
@@ -169,6 +186,10 @@ class ContextSyncService {
         return status;
       }
 
+      if (!stillActive()) {
+        return _cancelled(contextId, onStatus);
+      }
+
       status = status.copyWith(message: 'Merging .ai context…');
       onStatus?.call(status);
 
@@ -179,9 +200,17 @@ class ContextSyncService {
       await _copyTree(localAiDir, localSnap);
       await _copyTree(remoteContextDir, remoteSnap);
 
+      // Cursor only when the same paths differ — smart multi-context merge.
+      // Asymmetric adds/removes use fast additive merge.
+      final needsCursor =
+          cursorSettings.enabled && diff.changed.isNotEmpty;
       late final Directory mergedDir;
-      if (cursorSettings.enabled) {
-        _log.info('Starting Cursor merge…', source: 'context-sync');
+      if (needsCursor) {
+        _log.info(
+          'Starting Cursor merge (conflicting paths)',
+          source: 'context-sync',
+          data: {'changed': diff.changed.length},
+        );
         status = status.copyWith(message: 'Merging via Cursor…');
         onStatus?.call(status);
         mergedDir = await _cursorMerge.merge(
@@ -190,6 +219,7 @@ class ContextSyncService {
           remoteDir: remoteSnap,
           workRoot: workRoot,
           settings: cursorSettings,
+          conflictPaths: diff.changed,
         );
         _log.info(
           'Cursor merge done',
@@ -206,12 +236,20 @@ class ContextSyncService {
           outputDir: mergedDir,
         );
         _log.info(
-          'Additive merge done',
+          cursorSettings.enabled
+              ? 'Additive merge done (no conflicting paths — Cursor skipped)'
+              : 'Additive merge done',
           source: 'context-sync',
           data: {
             'ms': DateTime.now().difference(mergeStarted).inMilliseconds,
+            'onlyLocal': diff.onlyLocal.length,
+            'onlyRemote': diff.onlyRemote.length,
           },
         );
+      }
+
+      if (!stillActive()) {
+        return _cancelled(contextId, onStatus);
       }
 
       status = status.copyWith(message: 'Writing local .ai…');
@@ -219,6 +257,10 @@ class ContextSyncService {
 
       await _replaceTree(mergedDir, localAiDir);
       await _replaceTree(mergedDir, remoteContextDir);
+
+      if (!stillActive()) {
+        return _cancelled(contextId, onStatus);
+      }
 
       status = status.copyWith(message: 'Pushing to remote…');
       onStatus?.call(status);
@@ -254,13 +296,17 @@ class ContextSyncService {
         phase: ContextSyncPhase.idle,
         contextId: contextId,
         lastSyncedAt: DateTime.now(),
-        message: 'Synced',
+        message: needsCursor ? 'Synced (Cursor merge)' : 'Synced',
       );
       onStatus?.call(status);
       _log.info(
         'Sync completed',
         source: 'context-sync',
-        data: {'totalMs': totalMs, 'contextId': contextId},
+        data: {
+          'totalMs': totalMs,
+          'contextId': contextId,
+          'usedCursor': needsCursor,
+        },
       );
       return status;
     } catch (e) {
@@ -276,6 +322,24 @@ class ContextSyncService {
       _syncing = false;
       _activeContextId = null;
     }
+  }
+
+  ContextSyncStatus _cancelled(
+    String contextId,
+    ContextSyncStatusCallback? onStatus,
+  ) {
+    _log.info(
+      'Sync cancelled (project switched or superseded)',
+      source: 'context-sync',
+      data: {'contextId': contextId},
+    );
+    final status = ContextSyncStatus(
+      phase: ContextSyncPhase.idle,
+      contextId: contextId,
+      message: 'Sync cancelled',
+    );
+    onStatus?.call(status);
+    return status;
   }
 
   Future<Directory> _createWorkRoot(String contextId) async {
@@ -366,11 +430,28 @@ class ContextSyncService {
   /// Local-only / ephemeral files that should not force a sync.
   bool _shouldIgnoreRelativePath(String relative) {
     final normalized = relative.replaceAll(r'\', '/').toLowerCase();
-    if (normalized.startsWith('logs/')) return true;
-    if (normalized == 'logs') return true;
+    if (normalized.startsWith('logs/') || normalized == 'logs') return true;
     if (normalized.endsWith('.log')) return true;
-    if (normalized.startsWith('cursor-prompt-')) return true;
-    if (normalized.contains('/cursor-prompt-')) return true;
+    if (normalized == 'history.log' || normalized.endsWith('/history.log')) {
+      return true;
+    }
+    if (normalized == 'progress.log' || normalized.endsWith('/progress.log')) {
+      return true;
+    }
+    if (normalized.contains('cursor-prompt-')) return true;
+    if (normalized.startsWith('chat-export-') ||
+        normalized.contains('/chat-export-')) {
+      return true;
+    }
+    if (normalized == 'index/index-session.json') return true;
+    if (normalized == 'merge_notes.md') return true;
+    if (normalized.contains('/conflicts/')) return true;
+    if (normalized.endsWith('.bak')) return true;
+    if (normalized.contains('.backup')) return true;
+    // Timestamped context.json backups: context.json.1712… / context.json-…
+    if (RegExp(r'(^|/)context\.json[\.\-_]\d').hasMatch(normalized)) {
+      return true;
+    }
     return false;
   }
 }

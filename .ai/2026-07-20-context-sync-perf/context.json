@@ -1,0 +1,10 @@
+{
+  "id": "2026-07-20-context-sync-perf",
+  "title": "Context sync GitHub too frequent/slow",
+  "status": "done",
+  "created_at": "2026-07-20T16:20:00Z",
+  "updated_at": "2026-07-20T16:35:00Z",
+  "tags": ["context-sync", "github", "performance", "cursor"],
+  "summary": "Kept Cursor for smart conflict merges; skipped Cursor on asymmetric-only diffs; cheap git pull; abort before push on project switch; wider ignore; cooldown 5m.",
+  "branch": "main"
+}

@@ -135,15 +135,16 @@ class ContextSyncGitService {
     final cloneDir = await getCloneDirectory();
     final gitDir = Directory(p.join(cloneDir.path, '.git'));
 
-    final remoteInfo = await _inspectRemote(url);
-    if (!remoteInfo.reachable) {
-      return ContextSyncGitResult(
-        ok: false,
-        error: remoteInfo.error ?? 'Remote is not reachable',
-      );
-    }
-
+    // First clone still needs ls-remote to detect empty remotes.
     if (!gitDir.existsSync()) {
+      final remoteInfo = await _inspectRemote(url);
+      if (!remoteInfo.reachable) {
+        return ContextSyncGitResult(
+          ok: false,
+          error: remoteInfo.error ?? 'Remote is not reachable',
+        );
+      }
+
       if (cloneDir.existsSync()) {
         cloneDir.deleteSync(recursive: true);
       }
@@ -167,6 +168,7 @@ class ContextSyncGitService {
       return const ContextSyncGitResult(ok: true);
     }
 
+    // Existing clone: skip ls-remote — fetch + compare HEAD is enough.
     final setUrl = await _runGit(
       ['remote', 'set-url', 'origin', url],
       workingDirectory: cloneDir.path,
@@ -182,16 +184,33 @@ class ContextSyncGitService {
       return fetch;
     }
 
-    if (remoteInfo.isEmpty) {
-      await _ensureLocalBranch(cloneDir.path);
+    final branch = await _resolveRemoteBranch(cloneDir.path);
+    await _ensureLocalBranch(cloneDir.path, preferred: branch);
+
+    final remoteTip = await _runGit(
+      ['rev-parse', '--verify', 'origin/$branch'],
+      workingDirectory: cloneDir.path,
+    );
+    if (!remoteTip.ok) {
+      // No remote branch yet (empty or first push pending).
       return const ContextSyncGitResult(
         ok: true,
-        stdout: 'Remote repository is empty (ready for first push)',
+        stdout: 'Remote branch missing (ready for first push)',
       );
     }
 
-    final branch = remoteInfo.defaultBranch ?? _defaultBranch;
-    await _ensureLocalBranch(cloneDir.path, preferred: branch);
+    final localTip = await _runGit(
+      ['rev-parse', 'HEAD'],
+      workingDirectory: cloneDir.path,
+    );
+    if (localTip.ok &&
+        localTip.stdout.trim().isNotEmpty &&
+        localTip.stdout.trim() == remoteTip.stdout.trim()) {
+      return const ContextSyncGitResult(
+        ok: true,
+        stdout: 'Already up to date',
+      );
+    }
 
     final pullRebase = await _runGit(
       ['pull', '--rebase', 'origin', branch],
@@ -211,6 +230,27 @@ class ContextSyncGitService {
       return const ContextSyncGitResult(ok: true);
     }
     return pull;
+  }
+
+  Future<String> _resolveRemoteBranch(String repoPath) async {
+    final symbolic = await _runGit(
+      ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
+      workingDirectory: repoPath,
+    );
+    if (symbolic.ok) {
+      final ref = symbolic.stdout.trim();
+      final match = RegExp(r'refs/remotes/origin/(\S+)').firstMatch(ref);
+      if (match != null) return match.group(1)!;
+    }
+
+    for (final candidate in [_defaultBranch, 'master']) {
+      final tip = await _runGit(
+        ['rev-parse', '--verify', 'origin/$candidate'],
+        workingDirectory: repoPath,
+      );
+      if (tip.ok) return candidate;
+    }
+    return _defaultBranch;
   }
 
   Future<ContextSyncGitResult> _initEmptyRepo(
