@@ -185,5 +185,37 @@
       "ai-storage-no-task-id"
     ],
     "notes": "Пользователь подтвердил: Cursor нужен для умного совмещения нескольких контекстов."
+  },
+  {
+    "id": "mem-20260720-mermaid-chat-md",
+    "date": "2026-07-20T16:40:00Z",
+    "source": "user",
+    "summary": "Чат агента: рендер Mermaid (Kroki SVG), подсветка code blocks, улучшенные стили markdown и шире bubbles.",
+    "applied_rules": [
+      "ai-storage-no-task-id",
+      "agent-ui-markdown-everywhere"
+    ],
+    "notes": "MarkdownContent pre-builder; MermaidDiagramView; нужен интернет до kroki.io."
+  },
+  {
+    "id": "mem-20260720-adaptive-blocks",
+    "date": "2026-07-20T16:45:00Z",
+    "source": "user",
+    "summary": "Overflow в side panel Row; resizable mermaid/code blocks и ширина Agent side panel; markdown не выходит за границы.",
+    "applied_rules": [
+      "ai-storage-no-task-id",
+      "agent-ui-markdown-everywhere"
+    ],
+    "notes": "ResizableBlockFrame + AdaptiveActionBar."
+  },
+  {
+    "id": "mem-20260720-mojibake-utf8",
+    "date": "2026-07-20T16:50:00Z",
+    "source": "user",
+    "summary": "Windows mojibake в Обучение: Process.run/File IO без utf8. Всегда utf8 + repairUtf8Mojibake при загрузке learning-pending.",
+    "applied_rules": [
+      "ai-storage-no-task-id"
+    ],
+    "notes": "core/utils/utf8_file_io.dart"
   }
 ]

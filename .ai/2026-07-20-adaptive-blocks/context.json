@@ -1,0 +1,9 @@
+{
+  "id": "2026-07-20-adaptive-blocks",
+  "title": "Fix overflow + resizable adaptive blocks",
+  "status": "done",
+  "created_at": "2026-07-20T16:36:00Z",
+  "updated_at": "2026-07-20T16:45:00Z",
+  "tags": ["ui", "overflow", "mermaid", "agent"],
+  "summary": "Fixed agent_side_panel Row overflow; resizable mermaid/code blocks; resizable agent side panel; markdown width constraints."
+}

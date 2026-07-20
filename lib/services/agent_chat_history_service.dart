@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:project_manager/core/utils/agent_profile_paths.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 import 'package:project_manager/services/analysis/cursor_cli_project_qa_service.dart';
 import 'package:uuid/uuid.dart';
 
@@ -14,7 +15,7 @@ class AgentChatHistoryService {
     final file = File(AgentProfilePaths.chatHistoryPath(projectRoot));
     if (!file.existsSync()) return const [];
     try {
-      final lines = await file.readAsLines();
+      final lines = await file.readAsLines(encoding: utf8);
       final messages = <ProjectQaMessage>[];
       for (final line in lines) {
         final trimmed = line.trim();
@@ -23,7 +24,7 @@ class AgentChatHistoryService {
         messages.add(
           ProjectQaMessage(
             role: json['role'] as String? ?? 'assistant',
-            text: json['text'] as String? ?? '',
+            text: repairUtf8Mojibake(json['text'] as String? ?? ''),
             timestamp: DateTime.tryParse(json['timestamp'] as String? ?? '') ??
                 DateTime.now(),
             isError: json['isError'] as bool? ?? false,
@@ -51,7 +52,7 @@ class AgentChatHistoryService {
         }),
       );
     }
-    await file.writeAsString(buffer.toString());
+    await writeUtf8File(file, buffer.toString());
   }
 
   Future<String> exportTranscript(
@@ -68,7 +69,7 @@ class AgentChatHistoryService {
     final out = File(
       '${AgentProfilePaths.aiDir(projectRoot)}/chat-export-${DateTime.now().millisecondsSinceEpoch}.md',
     );
-    await out.writeAsString(buffer.toString());
+    await writeUtf8File(out, buffer.toString());
     return out.path;
   }
 }

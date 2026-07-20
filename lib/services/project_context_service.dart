@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:project_manager/core/utils/project_context_paths.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 import 'package:project_manager/models/git_repository_status.dart';
 import 'package:project_manager/models/global_package_metadata.dart';
 import 'package:project_manager/models/project.dart';
@@ -112,7 +113,7 @@ class ProjectContextService {
 
       final encoder = const JsonEncoder.withIndent('  ');
       final file = File(outputPath);
-      await file.writeAsString(encoder.convert(context));
+      await writeUtf8File(file, encoder.convert(context));
 
       return ProjectContextBuildResult(
         filePath: outputPath,
@@ -135,7 +136,7 @@ class ProjectContextService {
 
     try {
       final decoded =
-          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+          jsonDecode(readUtf8FileSync(file)) as Map<String, dynamic>;
       final generatedAtRaw = decoded['generatedAt'] as String?;
       return ProjectContextFileInfo(
         filePath: file.path,

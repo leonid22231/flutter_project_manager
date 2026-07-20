@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:project_manager/core/utils/agent_profile_paths.dart';
 import 'package:project_manager/core/utils/project_context_paths.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 
 class AgentIndexMeta {
   const AgentIndexMeta({
@@ -81,7 +82,7 @@ class AgentIndexMetaService {
     }
     try {
       return AgentIndexMeta.fromJson(
-        jsonDecode(await file.readAsString()) as Map<String, dynamic>,
+        jsonDecode(await readUtf8File(file)) as Map<String, dynamic>,
       );
     } catch (_) {
       return const AgentIndexMeta();
@@ -91,7 +92,8 @@ class AgentIndexMetaService {
   Future<void> save(String projectRoot, AgentIndexMeta meta) async {
     final file = File(AgentProfilePaths.indexMetaPath(projectRoot));
     file.parent.createSync(recursive: true);
-    await file.writeAsString(
+    await writeUtf8File(
+      file,
       const JsonEncoder.withIndent('  ').convert(meta.toJson()),
     );
   }

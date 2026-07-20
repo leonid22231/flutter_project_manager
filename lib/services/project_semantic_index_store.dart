@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:project_manager/core/utils/agent_profile_paths.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 import 'package:project_manager/models/project_semantic_index.dart';
 
 class ProjectSemanticIndexStore {
@@ -119,8 +120,9 @@ class ProjectSemanticIndexStore {
     final file = File(path);
     if (!file.existsSync()) return fallback;
     try {
-      final raw = jsonDecode(await file.readAsString());
-      if (raw is Map<String, dynamic>) return fromJson(raw);
+      final raw = jsonDecode(await readUtf8File(file));
+      final repaired = repairUtf8InJson(raw);
+      if (repaired is Map<String, dynamic>) return fromJson(repaired);
     } catch (_) {}
     return fallback;
   }
@@ -128,7 +130,8 @@ class ProjectSemanticIndexStore {
   Future<void> _saveJson(String path, Map<String, dynamic> json) async {
     final file = File(path);
     await file.parent.create(recursive: true);
-    await file.writeAsString(
+    await writeUtf8File(
+      file,
       const JsonEncoder.withIndent('  ').convert(json),
     );
   }

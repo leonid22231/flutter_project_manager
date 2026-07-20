@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 
 /// Prepares Cursor Agent CLI argv so long prompts do not hit Windows
 /// `cmd.exe` (~8191) / CreateProcess limits ("The command line is too long").
@@ -39,7 +40,7 @@ class CursorCliPromptDelivery {
         'cursor-prompt-${DateTime.now().millisecondsSinceEpoch}.md',
       ),
     );
-    await file.writeAsString(prompt, flush: true);
+    await writeUtf8File(file, prompt, flush: true);
 
     final pointer = [
       'Your full prompt is in this local file (read it completely and follow it):',

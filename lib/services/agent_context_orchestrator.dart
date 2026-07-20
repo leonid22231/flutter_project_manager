@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:project_manager/core/utils/user_language_utils.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 import 'package:project_manager/models/agent_progress_step.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/git_repository_status.dart';
@@ -542,11 +543,15 @@ class AgentContextOrchestrator {
                 prepared.args,
                 environment: env,
                 runInShell: true,
+                stdoutEncoding: utf8,
+                stderrEncoding: utf8,
               ).timeout(jsonAgentTimeout)
             : await Process.run(
                 settings.cliCommand.trim(),
                 prepared.args,
                 environment: env,
+                stdoutEncoding: utf8,
+                stderrEncoding: utf8,
               ).timeout(jsonAgentTimeout);
 
         if (result.exitCode != 0) {
@@ -578,7 +583,7 @@ class AgentContextOrchestrator {
   }
 
   String? _extractJsonPayload(String stdout) {
-    final text = stdout.trim();
+    final text = repairUtf8Mojibake(stdout.trim());
     if (text.isEmpty) return null;
 
     try {
@@ -586,7 +591,7 @@ class AgentContextOrchestrator {
       if (outer is Map<String, dynamic>) {
         final result = outer['result'] as String?;
         if (result != null && result.trim().isNotEmpty) {
-          final inner = result.trim();
+          final inner = repairUtf8Mojibake(result.trim());
           if (inner.startsWith('{')) return inner;
           final start = inner.indexOf('{');
           final end = inner.lastIndexOf('}');

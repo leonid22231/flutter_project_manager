@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/core/utils/agent_profile_paths.dart';
 import 'package:project_manager/core/utils/project_context_paths.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 import 'package:project_manager/models/agent_profile.dart';
 import 'package:project_manager/models/project_knowledge.dart';
 import 'package:uuid/uuid.dart';
@@ -51,8 +52,10 @@ class AgentProfileService {
 
     try {
       final json =
-          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      return AgentProfile.fromJson(json);
+          jsonDecode(await readUtf8File(file)) as Map<String, dynamic>;
+      return AgentProfile.fromJson(
+        Map<String, dynamic>.from(repairUtf8InJson(json) as Map),
+      );
     } catch (_) {
       final defaults = AgentProfile.defaults(languageCode: languageCode);
       await saveProfile(projectRoot, defaults);
@@ -65,7 +68,7 @@ class AgentProfileService {
     final updated = profile.copyWith(updatedAt: DateTime.now());
     final file = File(AgentProfilePaths.profilePath(projectRoot));
     final encoder = const JsonEncoder.withIndent('  ');
-    await file.writeAsString(encoder.convert(updated.toJson()));
+    await writeUtf8File(file, encoder.convert(updated.toJson()));
   }
 
   Future<AgentMemoryStore> loadMemory(String projectRoot) async {
@@ -84,10 +87,12 @@ class AgentProfileService {
     final diaryFile = File(AgentProfilePaths.memoriesDiaryPath(projectRoot));
     if (diaryFile.existsSync()) {
       try {
-        final raw = jsonDecode(await diaryFile.readAsString());
+        final raw = jsonDecode(await readUtf8File(diaryFile));
         if (raw is List) {
           for (final item in raw.whereType<Map<String, dynamic>>()) {
-            put(_entryFromDiary(item));
+            put(_entryFromDiary(
+              Map<String, dynamic>.from(repairUtf8InJson(item) as Map),
+            ));
           }
         }
       } catch (_) {}
@@ -108,7 +113,7 @@ class AgentProfileService {
     if (!memoryFile.existsSync()) return const AgentMemoryStore();
     try {
       final json =
-          jsonDecode(await memoryFile.readAsString()) as Map<String, dynamic>;
+          jsonDecode(await readUtf8File(memoryFile)) as Map<String, dynamic>;
       return AgentMemoryStore.fromJson(json);
     } catch (_) {
       return const AgentMemoryStore();
@@ -178,7 +183,7 @@ class AgentProfileService {
       if (contextFile.existsSync()) {
         try {
           final json =
-              jsonDecode(await contextFile.readAsString()) as Map<String, dynamic>;
+              jsonDecode(await readUtf8File(contextFile)) as Map<String, dynamic>;
           summary = (json['summary'] as String?)?.trim();
           summary ??= (json['title'] as String?)?.trim();
           createdAt = DateTime.tryParse(json['updated_at'] as String? ?? '') ??
@@ -188,7 +193,7 @@ class AgentProfileService {
 
       if ((summary == null || summary.isEmpty) && resultFile.existsSync()) {
         try {
-          final text = await resultFile.readAsString();
+          final text = await readUtf8File(resultFile);
           final firstLine = text
               .split('\n')
               .map((l) => l.trim())
@@ -229,7 +234,7 @@ class AgentProfileService {
     final native = AgentMemoryStore(
       entries: store.entries.where((e) => isEditableMemoryId(e.id)).toList(),
     );
-    await file.writeAsString(encoder.convert(native.toJson()));
+    await writeUtf8File(file, encoder.convert(native.toJson()));
   }
 
   Future<AgentMemoryEntry> addMemoryEntry(
@@ -269,7 +274,7 @@ class AgentProfileService {
 
     try {
       final json =
-          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+          jsonDecode(await readUtf8File(file)) as Map<String, dynamic>;
       return ProjectKnowledgeStore.fromJson(json);
     } catch (_) {
       return const ProjectKnowledgeStore();
@@ -283,7 +288,7 @@ class AgentProfileService {
     _ensureAiDir(projectRoot);
     final file = File(AgentProfilePaths.knowledgePath(projectRoot));
     final encoder = const JsonEncoder.withIndent('  ');
-    await file.writeAsString(encoder.convert(store.toJson()));
+    await writeUtf8File(file, encoder.convert(store.toJson()));
   }
 
   Future<void> upsertKnowledgeInsight(

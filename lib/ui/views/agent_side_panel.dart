@@ -12,6 +12,7 @@ import 'package:project_manager/services/agent_profile_service.dart';
 import 'package:project_manager/services/project_context_service.dart';
 import 'package:project_manager/ui/widgets/agent_progress_panel.dart';
 import 'package:project_manager/ui/widgets/markdown_content.dart';
+import 'package:project_manager/ui/widgets/resizable_block.dart';
 import 'package:project_manager/models/agent_progress_step.dart';
 import 'package:project_manager/services/agent_context_orchestrator.dart';
 import 'package:project_manager/state/app_settings_state.dart';
@@ -226,7 +227,7 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return ColoredBox(
+    return Material(
       color: IdeaColors.sidebar,
       child: Column(
         children: [
@@ -345,16 +346,16 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
           _MarkdownPreview(data: _selfAnalysis.text),
         ],
         const SizedBox(height: 10),
-        Row(
+        AdaptiveActionBar(
           children: [
             FilledButton(
               onPressed: _saving ? null : _saveProfile,
-              style: FilledButton.styleFrom(backgroundColor: IdeaColors.accent),
+              style: denseFilledStyle(backgroundColor: IdeaColors.accent),
               child: Text(_saving ? '…' : l10n.save),
             ),
-            const SizedBox(width: 8),
             OutlinedButton(
               onPressed: _analyzing ? null : _runSelfAnalysis,
+              style: denseOutlinedStyle(),
               child: Text(l10n.agentImproveProfile),
             ),
           ],
@@ -567,16 +568,16 @@ class _AgentSidePanelState extends State<AgentSidePanel> {
         ),
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
+          child: AdaptiveActionBar(
             children: [
               FilledButton(
                 onPressed: () => widget.onConfirmLearning(_editablePending),
-                style: FilledButton.styleFrom(backgroundColor: IdeaColors.accent),
+                style: denseFilledStyle(backgroundColor: IdeaColors.accent),
                 child: Text(l10n.agentConfirmLearning),
               ),
-              const SizedBox(width: 8),
               TextButton(
                 onPressed: widget.onDiscardLearning,
+                style: denseTextStyle(),
                 child: Text(l10n.agentDiscardLearning),
               ),
             ],
@@ -916,16 +917,20 @@ class _MarkdownPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
+      constraints: const BoxConstraints(maxHeight: 220),
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: IdeaColors.background,
         border: Border.all(color: IdeaColors.panelBorder),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: MarkdownContent(
-        data: data,
-        padding: EdgeInsets.zero,
-        compact: true,
+      clipBehavior: Clip.antiAlias,
+      child: SingleChildScrollView(
+        child: MarkdownContent(
+          data: data,
+          padding: EdgeInsets.zero,
+          compact: true,
+        ),
       ),
     );
   }
@@ -1027,6 +1032,7 @@ class _IndexQuestionCardState extends State<_IndexQuestionCard> {
           const SizedBox(height: 6),
           Wrap(
             spacing: 6,
+            runSpacing: 6,
             children: [
               FilledButton(
                 onPressed: !widget.enabled
@@ -1035,19 +1041,24 @@ class _IndexQuestionCardState extends State<_IndexQuestionCard> {
                           _controller.text,
                           IndexQuestionStatus.answered,
                         ),
-                style: FilledButton.styleFrom(backgroundColor: IdeaColors.accent),
+                style: denseFilledStyle(backgroundColor: IdeaColors.accent),
                 child: Text(widget.answerLabel),
               ),
               OutlinedButton(
                 onPressed: !widget.enabled
                     ? null
                     : () => widget.onSubmit('', IndexQuestionStatus.skipped),
+                style: denseOutlinedStyle(),
                 child: Text(widget.skipLabel),
               ),
               TextButton(
                 onPressed: !widget.enabled
                     ? null
-                    : () => widget.onSubmit('unknown', IndexQuestionStatus.unknown),
+                    : () => widget.onSubmit(
+                          'unknown',
+                          IndexQuestionStatus.unknown,
+                        ),
+                style: denseTextStyle(),
                 child: Text(widget.unknownLabel),
               ),
             ],

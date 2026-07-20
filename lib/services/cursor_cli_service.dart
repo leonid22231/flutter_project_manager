@@ -104,6 +104,8 @@ class CursorCliService {
           args,
           environment: environment,
           runInShell: true,
+          stdoutEncoding: utf8,
+          stderrEncoding: utf8,
         );
       }
 
@@ -111,6 +113,8 @@ class CursorCliService {
         command,
         args,
         environment: environment,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
       );
     } catch (e) {
       return ProcessResult(0, 1, '', e.toString());

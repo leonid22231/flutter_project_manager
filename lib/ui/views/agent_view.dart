@@ -68,6 +68,7 @@ class _AgentViewState extends State<AgentView> {
   CursorCliMode _mode = CursorCliMode.ask;
   AgentReadScope _readScope = AgentReadScope.repo;
   AgentWriteScope _writeScope = AgentWriteScope.none;
+  double _sidePanelWidth = 300;
 
   AgentProfile? _profile;
   AgentMemoryStore _memory = const AgentMemoryStore();
@@ -734,9 +735,21 @@ class _AgentViewState extends State<AgentView> {
             ),
           ),
         ),
-        const VerticalDivider(width: 1, color: IdeaColors.panelBorder),
+        MouseRegion(
+          cursor: SystemMouseCursors.resizeColumn,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragUpdate: (details) {
+              setState(() {
+                _sidePanelWidth = (_sidePanelWidth - details.delta.dx)
+                    .clamp(220.0, 560.0);
+              });
+            },
+            child: const SizedBox(width: 5),
+          ),
+        ),
         SizedBox(
-          width: 300,
+          width: _sidePanelWidth,
           child: AgentSidePanel(
             projectPath: project.path,
             profile: _profile,
@@ -1111,18 +1124,18 @@ class _MessageBubble extends StatelessWidget {
     final isUser = message.isUser;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxBubble = (constraints.maxWidth * 0.92).clamp(240.0, 680.0);
+        final maxBubble = (constraints.maxWidth * 0.96).clamp(280.0, 920.0);
         return Align(
           alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
           child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.fromLTRB(10, 8, 8, 10),
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             constraints: BoxConstraints(maxWidth: maxBubble),
             decoration: BoxDecoration(
               color: isUser
                   ? IdeaColors.accent.withValues(alpha: 0.12)
                   : IdeaColors.sidebar,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color:
                     message.isError ? IdeaColors.error : IdeaColors.panelBorder,
@@ -1210,16 +1223,16 @@ class _LiveBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxBubble = (constraints.maxWidth * 0.92).clamp(240.0, 680.0);
+        final maxBubble = (constraints.maxWidth * 0.96).clamp(280.0, 920.0);
         return Align(
           alignment: Alignment.centerLeft,
           child: Container(
             margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             constraints: BoxConstraints(maxWidth: maxBubble),
             decoration: BoxDecoration(
               color: IdeaColors.sidebar,
-              borderRadius: BorderRadius.circular(6),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: IdeaColors.panelBorder),
             ),
             child: Column(

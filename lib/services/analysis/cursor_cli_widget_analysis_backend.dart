@@ -185,6 +185,8 @@ ${jsonEncode(custom)}
           prepared.args,
           environment: env,
           runInShell: true,
+          stdoutEncoding: utf8,
+          stderrEncoding: utf8,
         );
       }
 
@@ -192,6 +194,8 @@ ${jsonEncode(custom)}
         settings.cliCommand.trim(),
         prepared.args,
         environment: env,
+        stdoutEncoding: utf8,
+        stderrEncoding: utf8,
       );
     } finally {
       await prepared.cleanup();

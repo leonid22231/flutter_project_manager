@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:project_manager/core/utils/agent_profile_paths.dart';
+import 'package:project_manager/core/utils/utf8_file_io.dart';
 import 'package:uuid/uuid.dart';
 
 class LearningPendingCandidate {
@@ -53,11 +54,13 @@ class LearningPendingCandidate {
   factory LearningPendingCandidate.fromJson(Map<String, dynamic> json) {
     return LearningPendingCandidate(
       id: json['id'] as String? ?? const Uuid().v4(),
-      kind: json['kind'] as String? ?? 'memory',
-      content: json['content'] as String? ?? '',
-      topic: json['topic'] as String?,
+      kind: repairUtf8Mojibake(json['kind'] as String? ?? 'memory'),
+      content: repairUtf8Mojibake(json['content'] as String? ?? ''),
+      topic: json['topic'] == null
+          ? null
+          : repairUtf8Mojibake(json['topic'].toString()),
       sources: (json['sources'] as List<dynamic>?)
-              ?.map((e) => e.toString())
+              ?.map((e) => repairUtf8Mojibake(e.toString()))
               .toList() ??
           const [],
       createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
@@ -103,8 +106,19 @@ class AgentLearningPendingService {
     final file = File(AgentProfilePaths.learningPendingPath(projectRoot));
     if (!file.existsSync()) return const LearningPendingStore();
     try {
-      final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-      return LearningPendingStore.fromJson(json);
+      final raw = await readUtf8File(file);
+      final decoded = jsonDecode(raw);
+      final repaired = repairUtf8InJson(decoded);
+      if (repaired is! Map<String, dynamic>) {
+        return const LearningPendingStore();
+      }
+      final store = LearningPendingStore.fromJson(repaired);
+      // Rewrite repaired content so the file stays clean on disk.
+      if (looksLikeUtf8Mojibake(raw) ||
+          store.candidates.any((c) => looksLikeUtf8Mojibake(c.content))) {
+        await save(projectRoot, store);
+      }
+      return store;
     } catch (_) {
       return const LearningPendingStore();
     }
@@ -113,7 +127,8 @@ class AgentLearningPendingService {
   Future<void> save(String projectRoot, LearningPendingStore store) async {
     final file = File(AgentProfilePaths.learningPendingPath(projectRoot));
     file.parent.createSync(recursive: true);
-    await file.writeAsString(
+    await writeUtf8File(
+      file,
       const JsonEncoder.withIndent('  ').convert(store.toJson()),
     );
   }
@@ -122,11 +137,15 @@ class AgentLearningPendingService {
     String projectRoot,
     Map<String, dynamic> decoded,
   ) async {
+    final cleaned = repairUtf8InJson(decoded);
+    final map = cleaned is Map<String, dynamic>
+        ? cleaned
+        : Map<String, dynamic>.from(decoded);
     final now = DateTime.now();
     final candidates = <LearningPendingCandidate>[];
 
-    for (final fact in (decoded['memory'] as List<dynamic>? ?? const [])) {
-      final text = fact.toString().trim();
+    for (final fact in (map['memory'] as List<dynamic>? ?? const [])) {
+      final text = repairUtf8Mojibake(fact.toString()).trim();
       if (text.isEmpty) continue;
       candidates.add(
         LearningPendingCandidate(
@@ -138,10 +157,10 @@ class AgentLearningPendingService {
       );
     }
 
-    for (final raw in (decoded['insights'] as List<dynamic>? ?? const [])
+    for (final raw in (map['insights'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()) {
-      final topic = raw['topic'] as String? ?? '';
-      final content = raw['content'] as String? ?? '';
+      final topic = repairUtf8Mojibake(raw['topic'] as String? ?? '');
+      final content = repairUtf8Mojibake(raw['content'] as String? ?? '');
       if (topic.isEmpty || content.isEmpty) continue;
       candidates.add(
         LearningPendingCandidate(
@@ -150,7 +169,7 @@ class AgentLearningPendingService {
           topic: topic,
           content: content,
           sources: (raw['sources'] as List<dynamic>?)
-                  ?.map((e) => e.toString())
+                  ?.map((e) => repairUtf8Mojibake(e.toString()))
                   .toList() ??
               const [],
           createdAt: now,
@@ -158,25 +177,25 @@ class AgentLearningPendingService {
       );
     }
 
-    final architecture = decoded['architectureSummary'] as String?;
+    final architecture = map['architectureSummary'] as String?;
     if (architecture != null && architecture.trim().isNotEmpty) {
       candidates.add(
         LearningPendingCandidate(
           id: _uuid.v4(),
           kind: 'architecture',
-          content: architecture.trim(),
+          content: repairUtf8Mojibake(architecture).trim(),
           createdAt: now,
         ),
       );
     }
 
-    final workflows = decoded['workflowsSummary'] as String?;
+    final workflows = map['workflowsSummary'] as String?;
     if (workflows != null && workflows.trim().isNotEmpty) {
       candidates.add(
         LearningPendingCandidate(
           id: _uuid.v4(),
           kind: 'workflows',
-          content: workflows.trim(),
+          content: repairUtf8Mojibake(workflows).trim(),
           createdAt: now,
         ),
       );

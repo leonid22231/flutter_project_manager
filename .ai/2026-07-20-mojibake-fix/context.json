@@ -1,0 +1,9 @@
+{
+  "id": "2026-07-20-mojibake-fix",
+  "title": "Fix Cyrillic mojibake in Training panel",
+  "status": "done",
+  "created_at": "2026-07-20T16:43:00Z",
+  "updated_at": "2026-07-20T16:50:00Z",
+  "tags": ["encoding", "windows", "learning-pending", "utf8"],
+  "summary": "Windows Process.run and File IO used systemEncoding; Cyrillic became Ð¿Ð¾Ð²… Fixed utf8 Process + file helpers + mojibake repair on load."
+}
