@@ -85,6 +85,14 @@ flutter run -d windows
 flutter build windows
 ```
 
+Сборка + ZIP (Cursor/VS Code task **Windows: build + ZIP**, или скрипт):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tool/build_windows_zip.ps1
+```
+
+Архив появится в `dist/project_manager-<version>-windows-<timestamp>.zip`.
+
 ## Настройки
 
 Откройте **Settings** в верхней панели:

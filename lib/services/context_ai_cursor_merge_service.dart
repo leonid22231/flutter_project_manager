@@ -79,8 +79,24 @@ Rules:
 5. If a conflict cannot be resolved cleanly, keep both variants and briefly note it in merged/MERGE_NOTES.md.
 ''';
 
-    final beforeCount = _countFiles(merged);
+    _log.info(
+      'Cursor merge preparing…',
+      source: 'context-sync-merge',
+      data: {
+        'conflicts': conflicts.length,
+        'conflictSample': conflicts.take(8).toList(),
+        'workRoot': workRoot.path.replaceAll(r'\', '/'),
+      },
+    );
 
+    final beforeCount = _countFiles(merged);
+    _log.info(
+      'Additive baseline ready ($beforeCount files). '
+      'Starting Cursor refine…',
+      source: 'context-sync-merge',
+    );
+
+    var lastLoggedStep = 0;
     final result = await _flight.run(
       projectId: projectId,
       job: 'context-sync-merge',
@@ -93,6 +109,25 @@ Rules:
         maxDuration: const Duration(minutes: 8),
         idleTimeout: const Duration(minutes: 3),
         mode: CursorCliMode.agent,
+        onProgress: (steps, partial) {
+          if (steps.length > lastLoggedStep) {
+            for (var i = lastLoggedStep; i < steps.length; i++) {
+              final text = steps[i].text.trim();
+              if (text.isEmpty) continue;
+              final preview =
+                  text.length <= 120 ? text : '${text.substring(0, 120)}…';
+              _log.think(
+                preview,
+                source: 'context-sync-merge',
+                data: {
+                  'step': i + 1,
+                  'complete': steps[i].isComplete,
+                },
+              );
+            }
+            lastLoggedStep = steps.length;
+          }
+        },
       ),
     );
 

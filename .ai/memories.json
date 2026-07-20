@@ -249,5 +249,15 @@
       "ai-storage-no-task-id"
     ],
     "notes": "utf8_file_io.dart + project_semantic_index_store.dart"
+  },
+  {
+    "id": "mem-20260721-windows-build-zip-task",
+    "date": "2026-07-21T02:50:00Z",
+    "source": "user",
+    "summary": "Сборка Windows + ZIP: task «Windows: build + ZIP» и tool/build_windows_zip.ps1 → dist/*.zip",
+    "applied_rules": [
+      "ai-storage-no-task-id"
+    ],
+    "notes": ".vscode/tasks.json; .gitignore keeps tasks.json + ignores /dist/"
   }
 ]

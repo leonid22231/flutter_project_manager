@@ -21,8 +21,14 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# VS Code
-.vscode/
+# VS Code / Cursor — keep shared launch & tasks; ignore personal settings noise
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Local Windows release ZIPs
+/dist/
+
 
 # Flutter/Dart/Pub related
 **/doc/api/

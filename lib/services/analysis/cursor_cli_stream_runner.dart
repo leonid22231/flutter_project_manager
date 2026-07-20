@@ -48,6 +48,7 @@ class CursorCliStreamRunner {
   StreamSubscription<String>? _stderrSub;
   Timer? _idleTimer;
   Timer? _maxTimer;
+  Timer? _heartbeatTimer;
   var _cancelRequested = false;
 
   bool get isRunning => _process != null;
@@ -103,8 +104,12 @@ class CursorCliStreamRunner {
       logRoot: projectRoot,
       data: {
         'model': settings.defaultModel,
+        'mode': resolvedMode.cliValue,
         'promptChars': prompt.length,
         'promptViaFile': prepared.promptFile != null,
+        if (prepared.promptFile != null)
+          'promptFile': prepared.promptFile!.path.replaceAll(r'\', '/'),
+        'workspace': projectRoot,
         'maxDurationSec': maxDuration.inSeconds,
         'idleTimeoutSec': idleTimeout.inSeconds,
       },
@@ -123,6 +128,11 @@ class CursorCliStreamRunner {
             environment: env,
           );
     _process = process;
+    _log.info(
+      'Cursor process spawned (pid=${process.pid}).',
+      source: logSource,
+      logRoot: projectRoot,
+    );
 
     final steps = <AgentProgressStep>[];
     final pendingTools = <String, int>{};
@@ -133,7 +143,10 @@ class CursorCliStreamRunner {
     var idleTimedOut = false;
     var cancelled = false;
     var gotResultEvent = false;
+    var eventCount = 0;
+    var lastActivity = 'spawned';
     Timer? resultGraceTimer;
+    final startedAt = DateTime.now();
 
     final completer = Completer<CursorCliStreamRunResult>();
 
@@ -144,10 +157,36 @@ class CursorCliStreamRunner {
       );
     }
 
+    String answerPreview() {
+      final a = finalAnswer.isNotEmpty ? finalAnswer : partialAnswer;
+      final t = a.trim();
+      if (t.isEmpty) return '';
+      return t.length <= 80 ? t : '${t.substring(0, 80)}…';
+    }
+
     void complete(CursorCliStreamRunResult result) {
       if (completer.isCompleted) return;
       _clearWatchdogs();
       resultGraceTimer?.cancel();
+      final elapsedMs = DateTime.now().difference(startedAt).inMilliseconds;
+      _log.info(
+        result.failed
+            ? 'Cursor CLI stream finished with failure.'
+            : 'Cursor CLI stream finished OK.',
+        source: logSource,
+        logRoot: projectRoot,
+        data: {
+          'elapsedMs': elapsedMs,
+          'exitCode': result.exitCode,
+          'steps': result.steps.length,
+          'answerChars': result.answer.length,
+          'events': eventCount,
+          'gotResult': gotResultEvent,
+          'cancelled': result.cancelled,
+          'timedOut': result.timedOut,
+          'idleTimedOut': result.idleTimedOut,
+        },
+      );
       unawaited(prepared.cleanup());
       completer.complete(result);
     }
@@ -189,6 +228,7 @@ class CursorCliStreamRunner {
           'Cursor CLI idle timeout (${idleTimeout.inMinutes} min without output).',
           source: logSource,
           logRoot: projectRoot,
+          data: {'lastActivity': lastActivity, 'events': eventCount},
         );
         await _killProcess(reason: 'idle-timeout');
       });
@@ -206,6 +246,25 @@ class CursorCliStreamRunner {
     });
     armIdleTimer();
 
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (completer.isCompleted) return;
+      final sec = DateTime.now().difference(startedAt).inSeconds;
+      _log.info(
+        'Cursor still working… ${sec}s',
+        source: logSource,
+        logRoot: projectRoot,
+        data: {
+          'lastActivity': lastActivity,
+          'events': eventCount,
+          'steps': steps.length,
+          'answerChars':
+              (finalAnswer.isNotEmpty ? finalAnswer : partialAnswer).length,
+          'gotResult': gotResultEvent,
+          if (answerPreview().isNotEmpty) 'answerPreview': answerPreview(),
+        },
+      );
+    });
+
     _stdoutSub = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
@@ -214,10 +273,12 @@ class CursorCliStreamRunner {
         armIdleTimer();
         final event = CursorCliStreamParser.parseLine(line);
         if (event == null) return;
+        eventCount++;
 
         switch (event.kind) {
           case CursorCliStreamEventKind.textDelta:
             partialAnswer += event.text ?? '';
+            lastActivity = 'textDelta';
             emitProgress();
           case CursorCliStreamEventKind.assistantSegment:
             final segment = event.text?.trim();
@@ -229,10 +290,21 @@ class CursorCliStreamRunner {
                   isComplete: true,
                 ),
               );
+              lastActivity = 'assistantSegment';
+              final preview = segment.length <= 100
+                  ? segment
+                  : '${segment.substring(0, 100)}…';
+              _log.info(
+                'Agent: $preview',
+                source: logSource,
+                logRoot: projectRoot,
+                data: {'step': steps.length},
+              );
               emitProgress();
             }
           case CursorCliStreamEventKind.toolStarted:
             final label = _formatToolStarted(event);
+            lastActivity = 'tool:$label';
             pendingTools[event.toolPath ?? label] = steps.length;
             steps.add(
               AgentProgressStep(
@@ -250,28 +322,48 @@ class CursorCliStreamRunner {
               );
               partialAnswer = '';
             }
+            _log.info(
+              'Tool start: $label',
+              source: logSource,
+              logRoot: projectRoot,
+            );
             emitProgress();
           case CursorCliStreamEventKind.toolCompleted:
             final key = event.toolPath ?? _formatToolStarted(event);
+            final label = _formatToolCompleted(event);
+            lastActivity = 'toolDone:$label';
             final index = pendingTools.remove(key);
             if (index != null && index < steps.length) {
               steps[index] = steps[index].copyWith(
-                text: _formatToolCompleted(event),
+                text: label,
                 isComplete: true,
               );
             } else {
               steps.add(
                 AgentProgressStep(
-                  text: _formatToolCompleted(event),
+                  text: label,
                   timestamp: DateTime.now(),
                   isComplete: true,
                 ),
               );
             }
+            _log.info(
+              'Tool done: $label',
+              source: logSource,
+              logRoot: projectRoot,
+            );
             emitProgress();
           case CursorCliStreamEventKind.result:
             gotResultEvent = true;
+            lastActivity = 'result';
             finalAnswer = event.text ?? finalAnswer;
+            _log.info(
+              'Result event received '
+              '(${finalAnswer.length} chars'
+              '${event.isError ? ', error' : ''}).',
+              source: logSource,
+              logRoot: projectRoot,
+            );
             emitProgress();
             resultGraceTimer?.cancel();
             resultGraceTimer = Timer(const Duration(seconds: 8), () async {
@@ -287,8 +379,20 @@ class CursorCliStreamRunner {
       },
       onError: (Object error) {
         stderrBuffer.writeln(error);
+        _log.warn(
+          'Cursor stdout error: $error',
+          source: logSource,
+          logRoot: projectRoot,
+        );
       },
-      onDone: () {},
+      onDone: () {
+        _log.info(
+          'Cursor stdout closed.',
+          source: logSource,
+          logRoot: projectRoot,
+          data: {'events': eventCount, 'gotResult': gotResultEvent},
+        );
+      },
       cancelOnError: false,
     );
 
@@ -342,6 +446,8 @@ class CursorCliStreamRunner {
     _idleTimer = null;
     _maxTimer?.cancel();
     _maxTimer = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
   }
 
   String _formatToolStarted(CursorCliStreamEvent event) {

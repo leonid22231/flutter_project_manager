@@ -364,6 +364,9 @@ class CursorCliProjectQaService {
         'args': prepared.args.take(9).join(' '),
         'promptChars': prompt.length,
         'promptViaFile': prepared.promptFile != null,
+        if (prepared.promptFile != null)
+          'promptFile': prepared.promptFile!.path.replaceAll(r'\', '/'),
+        'mode': mode.cliValue,
       },
     );
 
@@ -380,6 +383,12 @@ class CursorCliProjectQaService {
             environment: env,
           );
 
+    _log.info(
+      'Q&A process spawned (pid=${process.pid}).',
+      source: 'analysis',
+      logRoot: projectRoot,
+    );
+
     final reasoningSteps = <ProjectQaReasoningStep>[];
     final pendingTools = <String, int>{};
     var partialAnswer = '';
@@ -391,7 +400,11 @@ class CursorCliProjectQaService {
     Timer? idleTimer;
     Timer? maxTimer;
     Timer? resultGraceTimer;
+    Timer? heartbeatTimer;
     var gotResultEvent = false;
+    var eventCount = 0;
+    var lastActivity = 'spawned';
+    final startedAt = DateTime.now();
 
     void emitUpdate({bool isComplete = false, String? error}) {
       onStreamUpdate?.call(
@@ -431,9 +444,26 @@ class CursorCliProjectQaService {
       idleTimer?.cancel();
       maxTimer?.cancel();
       resultGraceTimer?.cancel();
+      heartbeatTimer?.cancel();
       final answer =
           finalAnswer.trim().isNotEmpty ? finalAnswer : partialAnswer;
       emitUpdate(isComplete: true);
+      _log.info(
+        'Q&A stream completing.',
+        source: 'analysis',
+        logRoot: projectRoot,
+        data: {
+          'exitCode': exitCode,
+          'elapsedMs': DateTime.now().difference(startedAt).inMilliseconds,
+          'events': eventCount,
+          'steps': reasoningSteps.length,
+          'answerChars': answer.length,
+          'gotResult': gotResultEvent,
+          'lastActivity': lastActivity,
+          'timedOut': timedOut,
+          'idle': idle,
+        },
+      );
       completer.complete(
         _AgentStreamResult(
           exitCode: timedOut || idle ? (exitCode == 0 ? 1 : exitCode) : exitCode,
@@ -460,6 +490,24 @@ class CursorCliProjectQaService {
     });
     armIdle();
 
+    heartbeatTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (completer.isCompleted) return;
+      final sec = DateTime.now().difference(startedAt).inSeconds;
+      _log.info(
+        'Q&A still working… ${sec}s',
+        source: 'analysis',
+        logRoot: projectRoot,
+        data: {
+          'lastActivity': lastActivity,
+          'events': eventCount,
+          'steps': reasoningSteps.length,
+          'answerChars':
+              (finalAnswer.isNotEmpty ? finalAnswer : partialAnswer).length,
+          'gotResult': gotResultEvent,
+        },
+      );
+    });
+
     stdoutSub = process.stdout
         .transform(utf8.decoder)
         .transform(const LineSplitter())
@@ -468,10 +516,12 @@ class CursorCliProjectQaService {
         armIdle();
         final event = CursorCliStreamParser.parseLine(line);
         if (event == null) return;
+        eventCount++;
 
         switch (event.kind) {
           case CursorCliStreamEventKind.textDelta:
             partialAnswer += event.text ?? '';
+            lastActivity = 'textDelta';
             emitUpdate();
           case CursorCliStreamEventKind.assistantSegment:
             final segment = event.text?.trim();
@@ -483,10 +533,20 @@ class CursorCliProjectQaService {
                   isComplete: true,
                 ),
               );
+              lastActivity = 'assistantSegment';
+              final preview = segment.length <= 100
+                  ? segment
+                  : '${segment.substring(0, 100)}…';
+              _log.info(
+                'Q&A agent: $preview',
+                source: 'analysis',
+                logRoot: projectRoot,
+              );
               emitUpdate();
             }
           case CursorCliStreamEventKind.toolStarted:
             final label = _formatToolStarted(event);
+            lastActivity = 'tool:$label';
             pendingTools[event.toolPath ?? label] = reasoningSteps.length;
             reasoningSteps.add(
               ProjectQaReasoningStep(
@@ -504,28 +564,47 @@ class CursorCliProjectQaService {
               );
               partialAnswer = '';
             }
+            _log.info(
+              'Q&A tool start: $label',
+              source: 'analysis',
+              logRoot: projectRoot,
+            );
             emitUpdate();
           case CursorCliStreamEventKind.toolCompleted:
             final key = event.toolPath ?? _formatToolStarted(event);
+            final label = _formatToolCompleted(event);
+            lastActivity = 'toolDone:$label';
             final index = pendingTools.remove(key);
             if (index != null && index < reasoningSteps.length) {
               reasoningSteps[index] = reasoningSteps[index].copyWith(
-                text: _formatToolCompleted(event),
+                text: label,
                 isComplete: true,
               );
             } else {
               reasoningSteps.add(
                 ProjectQaReasoningStep(
-                  text: _formatToolCompleted(event),
+                  text: label,
                   timestamp: DateTime.now(),
                   isComplete: true,
                 ),
               );
             }
+            _log.info(
+              'Q&A tool done: $label',
+              source: 'analysis',
+              logRoot: projectRoot,
+            );
             emitUpdate();
           case CursorCliStreamEventKind.result:
             gotResultEvent = true;
+            lastActivity = 'result';
             finalAnswer = event.text ?? finalAnswer;
+            _log.info(
+              'Q&A result received (${finalAnswer.length} chars'
+              '${event.isError ? ', error' : ''}).',
+              source: 'analysis',
+              logRoot: projectRoot,
+            );
             if (event.isError) {
               emitUpdate(isComplete: true, error: finalAnswer);
             } else {
@@ -544,7 +623,14 @@ class CursorCliProjectQaService {
       onError: (Object error) {
         stderrBuffer.writeln(error);
       },
-      onDone: () {},
+      onDone: () {
+        _log.info(
+          'Q&A stdout closed.',
+          source: 'analysis',
+          logRoot: projectRoot,
+          data: {'events': eventCount, 'gotResult': gotResultEvent},
+        );
+      },
       cancelOnError: false,
     );
 
@@ -587,6 +673,7 @@ class CursorCliProjectQaService {
       idleTimer?.cancel();
       maxTimer.cancel();
       resultGraceTimer?.cancel();
+      heartbeatTimer.cancel();
       await stdoutSub.cancel();
       await stderrSub.cancel();
       await prepared.cleanup();

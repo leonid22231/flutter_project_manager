@@ -206,6 +206,7 @@ class ContextSyncService {
           cursorSettings.enabled && diff.changed.isNotEmpty;
       late final Directory mergedDir;
       if (needsCursor) {
+        AppLogService.instance.showOverlay();
         _log.info(
           'Starting Cursor merge (conflicting paths)',
           source: 'context-sync',
@@ -252,8 +253,16 @@ class ContextSyncService {
         return _cancelled(contextId, onStatus);
       }
 
-      status = status.copyWith(message: 'Writing local .ai…');
+      status = status.copyWith(message: 'Writing merged .ai to disk…');
       onStatus?.call(status);
+      _log.info(
+        'Writing merged tree to local .ai and remote clone…',
+        source: 'context-sync',
+        data: {
+          'local': localAiDir.path.replaceAll(r'\', '/'),
+          'preserveIndex': true,
+        },
+      );
 
       await _replaceTree(mergedDir, localAiDir, preserveIgnored: true);
       await _replaceTree(mergedDir, remoteContextDir);
@@ -264,6 +273,7 @@ class ContextSyncService {
 
       status = status.copyWith(message: 'Pushing to remote…');
       onStatus?.call(status);
+      _log.info('Pushing sync commit…', source: 'context-sync');
 
       final pushStarted = DateTime.now();
       final push = await _git.commitAndPush(
