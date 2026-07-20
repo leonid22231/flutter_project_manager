@@ -1,8 +1,9 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:project_manager/core/utils/context_id_utils.dart';
 import 'package:project_manager/models/project.dart';
 
 class ProjectStorageService {
@@ -39,9 +40,23 @@ class ProjectStorageService {
     try {
       final content = file.readAsStringSync();
       final json = jsonDecode(content) as List<dynamic>;
-      return json
-          .map((e) => Project.fromJson(e as Map<String, dynamic>))
-          .toList();
+      var needsRewrite = false;
+      final projects = <Project>[];
+      for (final entry in json) {
+        final map = Map<String, dynamic>.from(entry as Map);
+        final rawContextId =
+            (map['contextId'] as String?)?.trim().isNotEmpty == true
+                ? map['contextId'] as String
+                : map['id'] as String;
+        if (!ContextIdUtils.isUuid(rawContextId)) {
+          needsRewrite = true;
+        }
+        projects.add(Project.fromJson(map));
+      }
+      if (needsRewrite) {
+        await saveProjects(projects);
+      }
+      return projects;
     } catch (_) {
       return [];
     }

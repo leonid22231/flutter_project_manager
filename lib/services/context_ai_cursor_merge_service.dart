@@ -3,20 +3,27 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/services/analysis/cursor_cli_stream_runner.dart';
+import 'package:project_manager/services/app_log_service.dart';
 import 'package:project_manager/services/context_ai_merge_service.dart';
+import 'package:project_manager/services/cursor_cli_flight.dart';
 
 /// Merges two `.ai` snapshots via Cursor CLI agent mode, with additive fallback.
 class ContextAiCursorMergeService {
   ContextAiCursorMergeService({
     CursorCliStreamRunner? runner,
     ContextAiMergeService? additiveMerge,
+    CursorCliFlight? flight,
   })  : _runner = runner ?? CursorCliStreamRunner(),
-        _additive = additiveMerge ?? ContextAiMergeService();
+        _additive = additiveMerge ?? ContextAiMergeService(),
+        _flight = flight ?? CursorCliFlight.instance;
 
   final CursorCliStreamRunner _runner;
   final ContextAiMergeService _additive;
+  final CursorCliFlight _flight;
+  final _log = AppLogService.instance;
 
   Future<Directory> merge({
+    required String projectId,
     required Directory localDir,
     required Directory remoteDir,
     required Directory workRoot,
@@ -58,14 +65,19 @@ Rules:
 5. When done, ensure merged/ contains the full unified context.
 ''';
 
-    final result = await _runner.run(
-      projectRoot: workRoot.path,
-      settings: settings,
-      prompt: prompt,
-      logSource: 'context-sync-merge',
-      maxDuration: const Duration(minutes: 8),
-      idleTimeout: const Duration(minutes: 3),
-      mode: CursorCliMode.agent,
+    final result = await _flight.run(
+      projectId: projectId,
+      job: 'context-sync-merge',
+      runner: _runner,
+      action: () => _runner.run(
+        projectRoot: workRoot.path,
+        settings: settings,
+        prompt: prompt,
+        logSource: 'context-sync-merge',
+        maxDuration: const Duration(minutes: 8),
+        idleTimeout: const Duration(minutes: 3),
+        mode: CursorCliMode.agent,
+      ),
     );
 
     final mergedFiles = merged.existsSync()
@@ -76,7 +88,14 @@ Rules:
             .length
         : 0;
 
-    if (result.failed || mergedFiles == 0) {
+    final cursorOk = result != null && !result.failed && mergedFiles > 0;
+    if (!cursorOk) {
+      if (result == null) {
+        _log.info(
+          'Cursor merge skipped by flight — additive fallback',
+          source: 'context-sync-merge',
+        );
+      }
       await _additive.mergeAdditive(
         localDir: localSnap,
         remoteDir: remoteSnap,

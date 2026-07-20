@@ -17,6 +17,7 @@ class WidgetAnalysisCoordinator {
   }
 
   Future<WidgetAnalysisResult> enrichWithCursor({
+    required String projectId,
     required String projectRoot,
     required CursorCliSettings settings,
     required List<WidgetEntry> baseline,
@@ -24,6 +25,7 @@ class WidgetAnalysisCoordinator {
     return CursorCliWidgetAnalysisBackend(
       settings: settings,
       projectRoot: projectRoot,
+      projectId: projectId,
       baseline: baseline,
     ).analyze(projectRoot);
   }

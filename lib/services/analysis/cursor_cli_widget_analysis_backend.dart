@@ -7,6 +7,7 @@ import 'package:project_manager/models/widget_origin.dart';
 import 'package:project_manager/services/analysis/cursor_cli_prompt_delivery.dart';
 import 'package:project_manager/services/analysis/widget_analysis_backend.dart';
 import 'package:project_manager/services/analysis/widget_analysis_result.dart';
+import 'package:project_manager/services/cursor_cli_flight.dart';
 import 'package:project_manager/services/cursor_cli_logger.dart';
 
 /// Enriches static widget analysis via Cursor Agent CLI (background-capable).
@@ -14,12 +15,16 @@ class CursorCliWidgetAnalysisBackend extends WidgetAnalysisBackend {
   CursorCliWidgetAnalysisBackend({
     required this.settings,
     required this.projectRoot,
+    required this.projectId,
     this.baseline,
-  });
+    CursorCliFlight? flight,
+  }) : _flight = flight ?? CursorCliFlight.instance;
 
   final CursorCliSettings settings;
   final String projectRoot;
+  final String projectId;
   final List<WidgetEntry>? baseline;
+  final CursorCliFlight _flight;
 
   final _log = CursorCliLogger.instance;
 
@@ -74,7 +79,24 @@ ${jsonEncode(custom)}
     );
 
     try {
-      final result = await _runAgent(projectRoot, prompt);
+      final result = await _flight.run(
+        projectId: projectId,
+        job: 'widget-enrichment',
+        action: () => _runAgent(projectRoot, prompt),
+      );
+
+      if (result == null) {
+        _log.info(
+          'Widget enrichment skipped by flight (another Cursor job active).',
+          source: 'widgets',
+          logRoot: projectRoot,
+        );
+        return WidgetAnalysisResult(
+          widgets: baseline!,
+          enrichedByCursor: false,
+        );
+      }
+
       final elapsed = DateTime.now().difference(started).inMilliseconds;
 
       if (result.exitCode != 0) {

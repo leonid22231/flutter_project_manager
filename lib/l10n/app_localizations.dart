@@ -1134,21 +1134,23 @@ class AppLocalizations {
   String get contextSyncProjectSection =>
       _s('Context ID & sync', 'ID контекста и синхронизация');
   String get contextSyncProjectHint => _s(
-        'This ID is the folder name in the shared repo. Set the same ID on another project to share `.ai` context.',
-        'Этот ID — имя папки в общем репозитории. Укажите тот же ID в другом проекте, чтобы делить контекст `.ai`.',
+        'This ID is always a UUID and is the folder name in the shared repo. Paste the same UUID on another device, or type the same shared words — identical words always produce the same UUID.',
+        'Этот ID всегда UUID и является именем папки в общем репозитории. Вставьте тот же UUID на другом устройстве или введите те же общие слова — одинаковые слова всегда дают один и тот же UUID.',
       );
   String get contextSyncProjectId => _s('ID', 'ID');
-  String get contextSyncProjectIdHint =>
-      _s('Any ID without path separators', 'Любой ID без разделителей пути');
+  String get contextSyncProjectIdHint => _s(
+        'UUID or shared words (same words → same UUID)',
+        'UUID или общие слова (одинаковые слова → один UUID)',
+      );
   String get contextSyncCopyId => _s('Copy ID', 'Копировать ID');
   String get contextSyncIdCopied => _s('ID copied', 'ID скопирован');
   String get contextSyncEditId => _s('Edit ID', 'Изменить ID');
   String get contextSyncGenerateId =>
-      _s('Generate new ID', 'Сгенерировать новый ID');
+      _s('Generate ID', 'Сгенерировать ID');
   String get contextSyncNow => _s('Sync now', 'Синхронизировать сейчас');
   String get contextSyncInvalidId => _s(
-        'Invalid ID. Do not use / or \\.',
-        'Некорректный ID. Нельзя использовать / или \\.',
+        'Invalid ID. Enter a UUID or shared words without / or \\.',
+        'Некорректный ID. Введите UUID или общие слова без / и \\.',
       );
   String get contextSyncDisabled => _s(
         'Context sync is disabled in app settings',

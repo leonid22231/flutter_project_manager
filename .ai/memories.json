@@ -141,5 +141,27 @@
                               "context-sync-github"
                           ],
         "notes":  "Workspace sync session 1784559441690; output in merged/; task temp-20260720-215905."
+    },
+    {
+        "id":  "context-id-uuid-v5",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "contextId всегда UUID; одинаковые слова/seed на разных устройствах → один UUID (v5). GitLab remote тоже даёт детерминированный UUID.",
+        "applied_rules":  [
+                              "user-confirmed-rule",
+                              "ai-storage-no-task-id"
+                          ],
+        "notes":  "ContextIdUtils.fromSeed / fromGitLabRemote; namespace fixed; legacy slug auto-migrate on load."
+    },
+    {
+        "id":  "mem-20260720-context-sync-merge-v3",
+        "date":  "2026-07-20T15:13:30Z",
+        "source":  "assistant",
+        "summary":  "Context sync merge v3: local id-superset memories (+context-id-uuid-v5); merged 2026-07-20 context/result; local log/history supersets.",
+        "applied_rules":  [
+                              "ai-storage-no-task-id",
+                              "context-sync-github"
+                          ],
+        "notes":  "Workspace sync session 1784560401468; output in merged/; task temp-20260720-221322."
     }
 ]

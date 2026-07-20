@@ -25,3 +25,10 @@
 ## Tests
 
 `test/context_sync_test.dart` — ID utils, migration, additive merge (9 tests passed)
+
+## Context ID = UUID
+
+- Always UUID in UI and as sync folder name.
+- Deterministic: UUID v5 from shared words (canonicalized) or from GitLab remote seed.
+- Same words on device A and B → same UUID.
+- Legacy slug like `gitlab.evosoft...` migrates to `fromSeed(slug)` on load.

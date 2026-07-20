@@ -21,6 +21,8 @@ import 'package:project_manager/models/project_file_node.dart';
 import 'package:project_manager/models/project_status.dart';
 import 'package:project_manager/models/validation_result.dart';
 import 'package:project_manager/services/context_sync_service.dart';
+import 'package:project_manager/services/app_log_service.dart';
+import 'package:project_manager/services/cursor_cli_flight.dart';
 import 'package:project_manager/services/dependency_resolver_service.dart';
 import 'package:project_manager/services/documentation_service.dart';
 import 'package:project_manager/services/file_documentation_service.dart';
@@ -120,6 +122,15 @@ class ProjectManagerState extends ChangeNotifier {
   Timer? _contextSyncDebounce;
   Timer? _contextSyncInterval;
   var _suppressAiWatch = false;
+  final Map<String, DateTime> _lastSuccessfulSyncAt = {};
+  /// Projects that already received one auto Cursor sync this session.
+  final Set<String> _autoCursorSyncDone = {};
+  var _syncRunGeneration = 0;
+
+  static const _autoSyncCooldown = Duration(minutes: 2);
+  static const _projectSelectDebounce = Duration(seconds: 2);
+  static const _aiWatchDebounce = Duration(seconds: 15);
+  static const _postSyncSuppress = Duration(seconds: 5);
 
   List<Project> get projects => List.unmodifiable(_projects);
   Project? get selectedProject => _selectedProject;
@@ -165,7 +176,7 @@ class ProjectManagerState extends ChangeNotifier {
         await _resolveDependenciesForSelectedProject();
         await _scanWidgetsForSelectedProject();
         await _refreshGitStatusForSelectedProject();
-        _startContextSyncForSelectedProject();
+        _armContextSyncForSelectedProject();
       }
     } finally {
       _isLoading = false;
@@ -174,6 +185,12 @@ class ProjectManagerState extends ChangeNotifier {
   }
 
   void selectProject(Project? project) {
+    if (project != null && project.id == _selectedProject?.id) {
+      return;
+    }
+
+    _syncRunGeneration++;
+    CursorCliFlight.instance.onProjectSwitched(project?.id);
     _selectedProject = project;
     _clearOpenFiles();
     _activeTab = WorkspaceTab.overview;
@@ -184,7 +201,7 @@ class ProjectManagerState extends ChangeNotifier {
       _resolveDependenciesForSelectedProject();
       _scanWidgetsForSelectedProject();
       _refreshGitStatusForSelectedProject();
-      _startContextSyncForSelectedProject();
+      _armContextSyncForSelectedProject();
     } else {
       _fileTree = [];
       _expandedDirectoryPaths = {};
@@ -438,7 +455,7 @@ class ProjectManagerState extends ChangeNotifier {
       await _loadProjectFiles(project.path);
       await _resolveDependenciesForSelectedProject();
       await _scanWidgetsForSelectedProject();
-      _startContextSyncForSelectedProject();
+      _armContextSyncForSelectedProject();
       return project;
     } catch (e) {
       _lastError = 'Failed to add project: $e';
@@ -557,7 +574,10 @@ class ProjectManagerState extends ChangeNotifier {
   }
 
   Future<void> refreshWidgets({CursorCliSettings? cursorSettings}) async {
-    await _scanWidgetsForSelectedProject(cursorSettings: cursorSettings);
+    await _scanWidgetsForSelectedProject(
+      cursorSettings: cursorSettings,
+      enrichWithCursor: true,
+    );
   }
 
   Future<void> _refreshGitStatusForSelectedProject({
@@ -629,6 +649,7 @@ class ProjectManagerState extends ChangeNotifier {
 
   Future<void> _scanWidgetsForSelectedProject({
     CursorCliSettings? cursorSettings,
+    bool enrichWithCursor = false,
   }) async {
     final project = _selectedProject;
     if (project == null) return;
@@ -638,19 +659,27 @@ class ProjectManagerState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final resolvedCursorSettings =
-          cursorSettings ?? await _settingsService.loadCursorCliSettings();
       final staticResult =
           await _widgetAnalysisCoordinator.analyzeStatic(project.path);
       await _saveWidgets(staticResult.widgets);
       _widgetsEnrichedByCursor = staticResult.enrichedByCursor;
 
-      if (resolvedCursorSettings.enabled) {
-        _enrichWidgetsWithCursor(
-          project.path,
-          resolvedCursorSettings,
-          staticResult.widgets,
-        );
+      // Never auto-enrich on project switch — that duplicates Cursor jobs.
+      // Enrichment runs only when explicitly requested (Widgets refresh).
+      if (enrichWithCursor) {
+        final resolvedCursorSettings =
+            cursorSettings ?? await _settingsService.loadCursorCliSettings();
+        if (resolvedCursorSettings.enabled &&
+            !_isEnrichingWidgetsWithCursor &&
+            !CursorCliFlight.instance.isBusy &&
+            !_contextSyncService.isSyncing) {
+          await _enrichWidgetsWithCursor(
+            project.id,
+            project.path,
+            resolvedCursorSettings,
+            staticResult.widgets,
+          );
+        }
       }
     } catch (e) {
       _lastError = 'Failed to scan widgets: $e';
@@ -661,6 +690,7 @@ class ProjectManagerState extends ChangeNotifier {
   }
 
   Future<void> _enrichWidgetsWithCursor(
+    String projectId,
     String projectPath,
     CursorCliSettings settings,
     List<WidgetEntry> baseline,
@@ -676,6 +706,7 @@ class ProjectManagerState extends ChangeNotifier {
 
     try {
       final enriched = await _widgetAnalysisCoordinator.enrichWithCursor(
+        projectId: projectId,
         projectRoot: projectPath,
         settings: settings,
         baseline: baseline,
@@ -715,12 +746,13 @@ class ProjectManagerState extends ChangeNotifier {
     }
   }
 
-  Future<void> syncContextNow() => _runContextSync();
+  Future<void> syncContextNow() =>
+      _runContextSync(reason: 'manual', force: true);
 
   void reloadContextSyncSchedule() {
     if (_selectedProject == null) return;
     unawaited(_restartContextSyncInterval());
-    unawaited(_runContextSync());
+    unawaited(_runContextSync(reason: 'settings-reload', force: true));
   }
 
   Future<bool> updateProjectContextId(String rawId) async {
@@ -734,22 +766,51 @@ class ProjectManagerState extends ChangeNotifier {
     }
     final updated = project.copyWith(contextId: normalized);
     await updateProject(updated);
-    _startContextSyncForSelectedProject();
+    _lastSuccessfulSyncAt.remove(normalized);
+    _autoCursorSyncDone.remove(updated.id);
+    _armContextSyncForSelectedProject(forceSoon: true);
     return true;
   }
 
   Future<void> regenerateProjectContextId() async {
-    await updateProjectContextId(ContextIdUtils.generateUuid());
+    final project = _selectedProject;
+    if (project == null) return;
+    final gitlabSettings = await _settingsService.loadGitLabSettings();
+    final gitStatus = await _gitService.getRepositoryStatus(
+      project.path,
+      configuredGitLabBaseUrl: gitlabSettings.normalizedBaseUrl,
+    );
+    final next = ContextIdUtils.resolveForNewProject(
+      remoteUrl: gitStatus.remoteUrl,
+      configuredGitLabBaseUrl: gitlabSettings.normalizedBaseUrl,
+    );
+    await updateProjectContextId(next);
   }
 
-  void _startContextSyncForSelectedProject() {
+  /// Arms watchers/interval and schedules a debounced auto-sync.
+  void _armContextSyncForSelectedProject({bool forceSoon = false}) {
     _stopContextSyncWatchers();
     final project = _selectedProject;
     if (project == null) return;
 
-    unawaited(_runContextSync());
     _watchAiDirectory(project.path);
     unawaited(_restartContextSyncInterval());
+    _scheduleContextSync(
+      reason: forceSoon ? 'context-id-changed' : 'project-selected',
+      delay: forceSoon ? Duration.zero : _projectSelectDebounce,
+      force: forceSoon,
+    );
+  }
+
+  void _scheduleContextSync({
+    required String reason,
+    Duration delay = Duration.zero,
+    bool force = false,
+  }) {
+    _contextSyncDebounce?.cancel();
+    _contextSyncDebounce = Timer(delay, () {
+      unawaited(_runContextSync(reason: reason, force: force));
+    });
   }
 
   Future<void> _restartContextSyncInterval() async {
@@ -757,7 +818,7 @@ class ProjectManagerState extends ChangeNotifier {
     final settings = await _settingsService.loadContextSyncSettings();
     if (!settings.isActive) return;
     _contextSyncInterval = Timer.periodic(settings.syncInterval, (_) {
-      unawaited(_runContextSync());
+      unawaited(_runContextSync(reason: 'interval', force: false));
     });
   }
 
@@ -769,10 +830,12 @@ class ProjectManagerState extends ChangeNotifier {
     try {
       _aiWatchSub = aiDir.watch(recursive: true).listen((_) {
         if (_suppressAiWatch) return;
-        _contextSyncDebounce?.cancel();
-        _contextSyncDebounce = Timer(const Duration(seconds: 3), () {
-          unawaited(_runContextSync());
-        });
+        if (_contextSyncService.isSyncing) return;
+        _scheduleContextSync(
+          reason: 'ai-watch',
+          delay: _aiWatchDebounce,
+          force: false,
+        );
       });
     } catch (_) {
       // Watching may be unsupported on some platforms/filesystems.
@@ -788,7 +851,10 @@ class ProjectManagerState extends ChangeNotifier {
     _contextSyncInterval = null;
   }
 
-  Future<void> _runContextSync() async {
+  Future<void> _runContextSync({
+    String reason = 'auto',
+    bool force = false,
+  }) async {
     final project = _selectedProject;
     if (project == null) return;
 
@@ -802,7 +868,62 @@ class ProjectManagerState extends ChangeNotifier {
       return;
     }
 
+    final contextId =
+        ContextIdUtils.normalize(project.contextId) ?? project.contextId;
+
+    // One auto Cursor sync per project when switching / watching .ai.
+    // Interval + manual Sync still allowed.
+    final switchAuto = reason == 'project-selected' || reason == 'ai-watch';
+    if (!force && switchAuto && _autoCursorSyncDone.contains(project.id)) {
+      AppLogService.instance.info(
+        'Auto-sync skipped — project already had its Cursor sync',
+        source: 'context-sync',
+        data: {'reason': reason, 'projectId': project.id},
+      );
+      return;
+    }
+
+    if (!force) {
+      final last = _lastSuccessfulSyncAt[contextId];
+      if (last != null &&
+          DateTime.now().difference(last) < _autoSyncCooldown) {
+        AppLogService.instance.info(
+          'Auto-sync skipped (cooldown)',
+          source: 'context-sync',
+          data: {
+            'reason': reason,
+            'contextId': contextId,
+            'cooldownSec': _autoSyncCooldown.inSeconds,
+            'lastAgoSec': DateTime.now().difference(last).inSeconds,
+          },
+        );
+        return;
+      }
+    }
+
+    if (_contextSyncService.isSyncing || CursorCliFlight.instance.isBusy) {
+      AppLogService.instance.info(
+        'Sync skipped — Cursor/sync already busy (no queue)',
+        source: 'context-sync',
+        data: {
+          'reason': reason,
+          'projectId': project.id,
+          'syncing': _contextSyncService.isSyncing,
+          'cursorBusy': CursorCliFlight.instance.isBusy,
+          'activeCursorJob': CursorCliFlight.instance.activeJob,
+        },
+      );
+      return;
+    }
+
+    final generation = _syncRunGeneration;
+    final projectId = project.id;
     final cursorSettings = await _settingsService.loadCursorCliSettings();
+
+    if (switchAuto) {
+      _autoCursorSyncDone.add(projectId);
+    }
+
     _suppressAiWatch = true;
     try {
       final status = await _contextSyncService.syncProject(
@@ -810,16 +931,32 @@ class ProjectManagerState extends ChangeNotifier {
         syncSettings: syncSettings,
         cursorSettings: cursorSettings,
         onStatus: (s) {
+          if (generation != _syncRunGeneration) return;
           _contextSyncStatus = s;
           notifyListeners();
         },
       );
+
+      if (status.lastSyncedAt != null && !status.hasError) {
+        _lastSuccessfulSyncAt[contextId] = status.lastSyncedAt!;
+      }
+
+      if (generation != _syncRunGeneration ||
+          _selectedProject?.id != projectId) {
+        AppLogService.instance.warn(
+          'Sync UI update discarded (project changed)',
+          source: 'context-sync',
+          data: {'reason': reason, 'finishedProjectId': projectId},
+        );
+        return;
+      }
+
       _contextSyncStatus = status;
       notifyListeners();
     } finally {
-      // Allow FS events from our own writes to settle.
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await Future<void>.delayed(_postSyncSuppress);
       _suppressAiWatch = false;
+      // No queued follow-up sync — one project = one Cursor request.
     }
   }
 

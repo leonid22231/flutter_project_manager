@@ -1,3 +1,4 @@
+import 'package:project_manager/core/utils/context_id_utils.dart';
 import 'package:project_manager/models/change_record.dart';
 import 'package:project_manager/models/documentation_link.dart';
 import 'package:project_manager/models/project_dependency.dart';
@@ -130,11 +131,14 @@ class Project {
 
   factory Project.fromJson(Map<String, dynamic> json) {
     final id = json['id'] as String;
+    final rawContextId =
+        (json['contextId'] as String?)?.trim().isNotEmpty == true
+            ? json['contextId'] as String
+            : id;
     return Project(
       id: id,
-      contextId: (json['contextId'] as String?)?.trim().isNotEmpty == true
-          ? json['contextId'] as String
-          : id,
+      contextId: ContextIdUtils.normalize(rawContextId) ??
+          ContextIdUtils.generateUuid(),
       name: json['name'] as String,
       path: json['path'] as String,
       description: json['description'] as String? ?? '',

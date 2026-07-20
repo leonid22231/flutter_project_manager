@@ -17,19 +17,55 @@ void main() {
       expect(ContextIdUtils.normalize('..'), isNull);
     });
 
-    test('normalize accepts safe ids', () {
-      expect(ContextIdUtils.normalize(' my-project_1 '), 'my-project_1');
+    test('normalize keeps UUID lowercase', () {
       expect(
-        ContextIdUtils.normalize('uuid-1234-5678'),
-        'uuid-1234-5678',
+        ContextIdUtils.normalize('  1A6D08F0-2727-40CC-B342-F49056C5D0FC  '),
+        '1a6d08f0-2727-40cc-b342-f49056c5d0fc',
       );
     });
 
-    test('fromGitLabRemote builds stable slug', () {
+    test('same seed words produce same UUID on every call', () {
+      final a = ContextIdUtils.fromSeed('Kiosk Cofix');
+      final b = ContextIdUtils.fromSeed('  kiosk   cofix ');
+      expect(a, b);
+      expect(ContextIdUtils.isUuid(a), isTrue);
+      expect(
+        ContextIdUtils.normalize('Kiosk Cofix'),
+        a,
+      );
+    });
+
+    test('different seeds produce different UUIDs', () {
+      expect(
+        ContextIdUtils.fromSeed('alpha'),
+        isNot(ContextIdUtils.fromSeed('beta')),
+      );
+    });
+
+    test('fromGitLabRemote builds deterministic UUID from remote', () {
       final id = ContextIdUtils.fromGitLabRemote(
         'git@gitlab.com:group/sub/project.git',
       );
-      expect(id, 'gitlab.com__group__sub__project');
+      expect(id, isNotNull);
+      expect(ContextIdUtils.isUuid(id!), isTrue);
+      expect(
+        id,
+        ContextIdUtils.fromSeed('gitlab.com__group__sub__project'),
+      );
+      expect(
+        ContextIdUtils.fromGitLabRemote(
+          'git@gitlab.com:group/sub/project.git',
+        ),
+        id,
+      );
+    });
+
+    test('legacy slug normalizes to same UUID as fromSeed', () {
+      const slug = 'gitlab.evosoft.xyz__reklama_cofix__self-service-kiosk';
+      expect(
+        ContextIdUtils.normalize(slug),
+        ContextIdUtils.fromSeed(slug),
+      );
     });
 
     test('fromGitLabRemote returns null for GitHub', () {
@@ -45,31 +81,47 @@ void main() {
       final id = ContextIdUtils.resolveForNewProject(
         remoteUrl: 'git@github.com:org/repo.git',
       );
-      expect(id.contains('-'), isTrue);
+      expect(ContextIdUtils.isUuid(id), isTrue);
       expect(ContextIdUtils.normalize(id), id);
     });
   });
 
   group('Project.contextId migration', () {
-    test('fromJson falls back to id when contextId missing', () {
+    test('fromJson converts legacy slug to deterministic UUID', () {
+      const slug = 'gitlab.com__group__project';
       final project = Project.fromJson({
         'id': 'abc-123',
+        'contextId': slug,
         'name': 'Demo',
         'path': '/tmp/demo',
         'addedAt': DateTime(2026, 1, 1).toIso8601String(),
       });
-      expect(project.contextId, 'abc-123');
+      expect(project.contextId, ContextIdUtils.fromSeed(slug));
+      expect(ContextIdUtils.isUuid(project.contextId), isTrue);
+    });
+
+    test('fromJson falls back to id when contextId missing', () {
+      final project = Project.fromJson({
+        'id': '1a6d08f0-2727-40cc-b342-f49056c5d0fc',
+        'name': 'Demo',
+        'path': '/tmp/demo',
+        'addedAt': DateTime(2026, 1, 1).toIso8601String(),
+      });
+      expect(project.contextId, '1a6d08f0-2727-40cc-b342-f49056c5d0fc');
     });
 
     test('toJson includes contextId', () {
       final project = Project(
         id: 'id-1',
-        contextId: 'shared-ctx',
+        contextId: '1a6d08f0-2727-40cc-b342-f49056c5d0fc',
         name: 'Demo',
         path: '/tmp/demo',
         addedAt: DateTime(2026, 1, 1),
       );
-      expect(project.toJson()['contextId'], 'shared-ctx');
+      expect(
+        project.toJson()['contextId'],
+        '1a6d08f0-2727-40cc-b342-f49056c5d0fc',
+      );
     });
   });
 
