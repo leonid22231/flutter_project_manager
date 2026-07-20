@@ -1,0 +1,1475 @@
+{
+  "notes": [
+    {
+      "path": "lib/models",
+      "role": "модели предметной области",
+      "summary": "Каталог Dart-классов и enum'ов данных приложения Project Manager: проекты, агент, сборки, git/GitLab, Cursor CLI, медиа, документация файлов. Сериализация через toJson/fromJson у многих типов.",
+      "confidence": "high",
+      "sources": [
+        "directory listing: 42 .dart files",
+        "package imports project_manager/models/*"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/agent_profile.dart",
+      "role": "профиль и память агента",
+      "summary": "AgentProfile — поля имени, описания, характера, skills/capabilities/limitations, selfAnalysis, customInstructions и дат; defaults(languageCode) с текстами en/ru. AgentMemoryEntry/AgentMemoryStore — записи памяти с id/content/tags. AiFolderEntry — метаданные элемента папки .ai (relativePath, isDirectory, sizeBytes).",
+      "confidence": "high",
+      "sources": [
+        "class AgentProfile / toJson / defaults",
+        "class AgentMemoryEntry, AgentMemoryStore",
+        "class AiFolderEntry"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/agent_progress_step.dart",
+      "role": "прогресс самоанализа агента",
+      "summary": "AgentProgressStep — шаг UI с text/timestamp/isComplete/isError. AgentSelfAnalysisProgress — список шагов, partialOutput, isRunning. AgentSelfAnalysisResult — итог с optional AgentProfile, error, rawOutput и флагами timedOut/idleTimedOut/cancelled; isSuccess при profile != null && error == null.",
+      "confidence": "high",
+      "sources": [
+        "import agent_profile.dart",
+        "class AgentProgressStep, AgentSelfAnalysisProgress, AgentSelfAnalysisResult"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/build_archive_entry.dart",
+      "role": "локальный архив сборки",
+      "summary": "Запись локальной сборки: id, createdAt, projectVersion, configName, command, platform, archivePath, sourceOutputPath, artifactFiles, exitCode; getter artifactsDirectory через Platform.pathSeparator; JSON-сериализация.",
+      "confidence": "high",
+      "sources": [
+        "class BuildArchiveEntry",
+        "import dart:io Platform",
+        "toJson/fromJson"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/build_config_source.dart",
+      "role": "источник конфига сборки",
+      "summary": "Enum BuildConfigSource: tasksJson, flutterDefault, gitlabCi.",
+      "confidence": "high",
+      "sources": [
+        "enum BuildConfigSource"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/build_history_entry.dart",
+      "role": "единая запись истории сборок",
+      "summary": "BuildHistorySource local|gitlabCi. BuildHistoryEntry объединяет локальный BuildArchiveEntry и GitLabCiBuild; поля артефактов и GitLab job/pipeline URL; needsGitLabArtifactDetailLoad при generic listings (artifacts.zip/metadata.gz/job.log); фабрики fromLocal/fromGitLab.",
+      "confidence": "high",
+      "sources": [
+        "enum BuildHistorySource",
+        "factory fromLocal/fromGitLab",
+        "comment about GitLab jobs API"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/build_run_mode.dart",
+      "role": "режим запуска сборки",
+      "summary": "Enum BuildRunMode: debug, profile, release, attach, build, test, compound, custom.",
+      "confidence": "high",
+      "sources": [
+        "enum BuildRunMode"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/change_record.dart",
+      "role": "запись истории изменений проекта",
+      "summary": "ChangeRecord: id, timestamp, title, description, optional category; JSON. В коде создания встречается category: 'system'.",
+      "confidence": "high",
+      "sources": [
+        "class ChangeRecord toJson/fromJson",
+        "usage category: 'system' in project_manager_state / documentation_service"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/context_sync_settings.dart",
+      "role": "настройки синхронизации контекста",
+      "summary": "ContextSyncSettings: enabled, repoUrl, syncIntervalMinutes (clamp 1–120 → Duration); hasRepoUrl/isActive; JSON.",
+      "confidence": "high",
+      "sources": [
+        "class ContextSyncSettings",
+        "getters hasRepoUrl, isActive, syncInterval"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/context_sync_status.dart",
+      "role": "состояние синхронизации контекста",
+      "summary": "ContextSyncPhase idle|syncing|error. ContextSyncStatus: phase, lastSyncedAt, error, message, contextId; copyWith с clearError/clearMessage; константа idle.",
+      "confidence": "high",
+      "sources": [
+        "enum ContextSyncPhase",
+        "class ContextSyncStatus"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/cursor_cli_bar_status.dart",
+      "role": "статус индикатора Cursor CLI",
+      "summary": "Enum CursorCliBarStatus: disabled, checking, connected, unavailable, noModel. Функция resolveCursorCliBarStatus учитывает enabled, isChecking, lastCheck (cliAvailable/authenticated/models) и defaultModel.",
+      "confidence": "high",
+      "sources": [
+        "enum CursorCliBarStatus",
+        "resolveCursorCliBarStatus",
+        "import cursor_cli_check_result.dart"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/cursor_cli_check_result.dart",
+      "role": "результат проверки Cursor CLI",
+      "summary": "CursorCliCheckResult: cliAvailable, version, authenticated, statusMessage, availableModels, error; isSuccess = cliAvailable && error==null && authenticated.",
+      "confidence": "high",
+      "sources": [
+        "class CursorCliCheckResult",
+        "getter isSuccess"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/cursor_cli_settings.dart",
+      "role": "настройки Cursor Agent CLI",
+      "summary": "CursorCliMode agent|plan|ask с cliModeArgs (--mode только для plan/ask; agent = без флага). CursorCliSettings: enabled, cliCommand, apiKey, useEnvironmentApiKey, defaultModel, defaultMode; presetModels и URL документации Cursor; JSON.",
+      "confidence": "high",
+      "sources": [
+        "enum CursorCliMode comments",
+        "class CursorCliSettings",
+        "presetModels, installDocsUrl"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/dart_import_analysis.dart",
+      "role": "анализ import'ов Dart-файла",
+      "summary": "DartImportKind: dartSdk, package, projectFile, relative, part, partOf. DartImportEntry — uri/kind/directive и resolved paths/targetExists. DartImportAnalysis группирует imports и строит markdown-таблицу Dependencies.",
+      "confidence": "high",
+      "sources": [
+        "enum DartImportKind",
+        "class DartImportEntry, DartImportAnalysis",
+        "toMarkdown()"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/dependency_source_type.dart",
+      "role": "тип источника зависимости",
+      "summary": "Enum DependencySourceType: pub, git, path, sdk с label; fromString с fallback на pub.",
+      "confidence": "high",
+      "sources": [
+        "enum DependencySourceType"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/documentation_link.dart",
+      "role": "ссылка документации проекта",
+      "summary": "DocumentationLink: id, title, url, optional description; JSON. Хранится в Project.documentationLinks.",
+      "confidence": "high",
+      "sources": [
+        "class DocumentationLink",
+        "used by Project"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/file_documentation_init_result.dart",
+      "role": "результат инициализации док. файла",
+      "summary": "FileDocumentationInitResult: Map sections и optional DartImportAnalysis.",
+      "confidence": "high",
+      "sources": [
+        "class FileDocumentationInitResult",
+        "import dart_import_analysis.dart"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/file_documentation_sections.dart",
+      "role": "ключи секций док. файла",
+      "summary": "FileDocumentationSections.keys: overview, notes, widgets, analysis, changelog, dependencies. Комментарий: хранятся локально per opened file.",
+      "confidence": "high",
+      "sources": [
+        "abstract final class FileDocumentationSections",
+        "comment Per-file documentation section keys"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/file_preview_focus.dart",
+      "role": "фокус превью файла",
+      "summary": "FilePreviewFocus с единственным полем line (номер строки). Используется в state/file_preview_view для позиционирования.",
+      "confidence": "high",
+      "sources": [
+        "class FilePreviewFocus",
+        "ProjectManagerState._filePreviewFocus"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/git_commit_entry.dart",
+      "role": "коммит git (плоский)",
+      "summary": "GitCommitEntry: hash, shortHash, author, email, subject, optional committedAt.",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitEntry"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/git_commit_graph_entry.dart",
+      "role": "граф/дерево коммитов",
+      "summary": "GitCommitGraphEntry (+ parents, decorations). GitCommitGraphRow — lane/laneCount/activeLanes/parentLanes. GitCommitTreeNode/GitCommitTreeRow — иерархия с depth/expansion для UI дерева.",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitGraphEntry, GitCommitGraphRow",
+        "class GitCommitTreeNode, GitCommitTreeRow"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/git_file_change.dart",
+      "role": "изменение файла в git",
+      "summary": "GitChangeKind: untracked, modified, staged, stagedModified, added, deleted, renamed, copied, conflicted, ignored. GitFileChange: path, oldPath, kind, staged/unstaged и производные hasStagedChanges/hasUnstagedChanges.",
+      "confidence": "high",
+      "sources": [
+        "enum GitChangeKind",
+        "class GitFileChange"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/git_repository_status.dart",
+      "role": "статус git-репозитория",
+      "summary": "GitRepositoryStatus: isRepository, branch/upstream, ahead/behind, remoteUrl, флаги/поля GitLab remote, список GitFileChange, error, checkedAt; фабрики notRepository/error; счётчики staged/unstaged/untracked.",
+      "confidence": "high",
+      "sources": [
+        "class GitRepositoryStatus",
+        "import git_file_change.dart",
+        "isGitLabRemote, gitlabWebUrl"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/gitlab_check_result.dart",
+      "role": "результат проверки GitLab API",
+      "summary": "GitLabCheckResult: connected, optional username, error.",
+      "confidence": "high",
+      "sources": [
+        "class GitLabCheckResult"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/gitlab_ci_build.dart",
+      "role": "CI job / pipeline GitLab",
+      "summary": "GitLabCiBuild — jobId, jobName, createdAt, projectVersion, platform, artifactFiles, webUrl, ref, pipelineId, stage. GitLabCiBuildsResult — список с пагинацией. GitLabPipelineTriggerResult — итог триггера pipeline.",
+      "confidence": "high",
+      "sources": [
+        "class GitLabCiBuild, GitLabCiBuildsResult, GitLabPipelineTriggerResult"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/gitlab_settings.dart",
+      "role": "настройки GitLab",
+      "summary": "GitLabSettings: enabled, baseUrl (default gitlab.com), personalAccessToken, useEnvironmentToken; normalizedBaseUrl; docsUrl; JSON.",
+      "confidence": "high",
+      "sources": [
+        "class GitLabSettings",
+        "docsUrl, defaultBaseUrl"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/global_package_metadata.dart",
+      "role": "глобальные заметки по пакету",
+      "summary": "GlobalPackageMetadata: packageName, customDescription, customNotes, updateRisks, updatedAt; hasCustomData; JSON. Подмешивается в отображение ProjectDependency.",
+      "confidence": "high",
+      "sources": [
+        "class GlobalPackageMetadata",
+        "ProjectDependency.displayDescription/Notes/Risks"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/media_asset_binding.dart",
+      "role": "привязка константы к asset-пути",
+      "summary": "MediaAssetBinding: className, constantName, assetPath, definitionFile/Line, inPreloadList, isDesigned, isMethod; isTemplate если assetPath содержит '{'; reference = className.constantName. В media_analyzer_service isDesigned = !path.startsWith('assets/').",
+      "confidence": "high",
+      "sources": [
+        "class MediaAssetBinding",
+        "media_analyzer_service.dart isDesigned assignment"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/media_usage_entry.dart",
+      "role": "использование медиа в коде",
+      "summary": "MediaUsageReferenceKind: appAssetsConstant, appAssetsMethod, designedAssetCall, stringLiteral. MediaUsageEntry: filePath, line, snippet, reference, kind, optional resolvedPath.",
+      "confidence": "high",
+      "sources": [
+        "enum MediaUsageReferenceKind",
+        "class MediaUsageEntry"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/opened_file.dart",
+      "role": "открытый файл в IDE-shell",
+      "summary": "OpenedFile: path, fileName, relativePath, FilePreviewResult preview, lineCount, languageId, documentationSections, optional dartImportAnalysis; sizeBytes из preview.",
+      "confidence": "high",
+      "sources": [
+        "class OpenedFile",
+        "import project_files_service.dart FilePreviewResult"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/project.dart",
+      "role": "модель управляемого проекта",
+      "summary": "Project: id (ключ хранения projects/<id>/), contextId (имя папки sync в shared GitHub context repo), name/path, description/goal/notes, platforms, flutter/dart versions, dependencies, status, changeHistory, widgets, documentationLinks, changelog, documentationSections, isFlutterProject, structureNotes, sdkAvailable; JSON с fallback contextId←id.",
+      "confidence": "high",
+      "sources": [
+        "class Project comments on id/contextId",
+        "toJson/fromJson",
+        "imports change_record, documentation_link, project_dependency, project_status, widget_entry"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/project_build_config.dart",
+      "role": "конфиг запуска/сборки проекта",
+      "summary": "ProjectBuildConfig: id, name, BuildConfigSource, BuildRunMode и поля VS Code/tasks (program, args, toolArgs, preLaunchTask, cwd, executable, shellCommand, childConfigurationNames и т.д.); displayCommand/canRunDirectly/isGitLabCiJob. ProjectBuildScanResult — результат скана конфигов.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectBuildConfig, ProjectBuildScanResult",
+        "import build_config_source, build_run_mode"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/project_dependency.dart",
+      "role": "зависимость pubspec",
+      "summary": "ProjectDependency: name, isDev, declared/resolved/latest versions, DependencySourceType, sourceDetail, description, pubDevUrl, localPath, updateNotes/Risks; legacy version/source в JSON; методы display* с GlobalPackageMetadata; hasUpdateAvailable.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectDependency",
+        "comment Legacy field kept for JSON migration",
+        "displayDescription/Notes/Risks"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/project_file_node.dart",
+      "role": "узел дерева файлов",
+      "summary": "ProjectFileNode: name, path, isDirectory, children, optional sizeBytes; copyWith.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectFileNode"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/models/project_knowledge.dart",
+      "role": "база знаний проекта для агента",
+      "summary": "ProjectKnowledgeInsight: id, topic, content, updatedAt, sources. ProjectKnowledgeStore: architectureSummary, workflowsSummary, insights, lastEnrichedAt, interactionCount; JSON.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectKnowledgeInsight, ProjectKnowledgeStore"
+      ],
+      "updatedAt": "2026-07-20T21:50:57.932918"
+    },
+    {
+      "path": "lib/services/cursor_cli_logger.dart",
+      "role": "логгер Cursor CLI",
+      "summary": "Синглтон CursorCliLogger (ChangeNotifier): пишет INFO/WARN/ERROR в память (до 200 записей), в AppLogService и в файл .ai/logs/cursor-cli-YYYY-MM-DD.log.",
+      "confidence": "high",
+      "sources": [
+        "comment: Persistent + in-memory log for Cursor Agent CLI operations",
+        "class CursorCliLogger",
+        "class CursorCliLogEntry",
+        "_appendToFile → .ai/logs"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/cursor_cli_service.dart",
+      "role": "проверка подключения Cursor CLI",
+      "summary": "CursorCliService запускает CLI (--version, status, models), собирает окружение (в т.ч. CURSOR_API_KEY) и возвращает CursorCliCheckResult.",
+      "confidence": "high",
+      "sources": [
+        "class CursorCliService",
+        "checkConnection",
+        "import cursor_cli_settings / cursor_cli_check_result"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/dart_import_analyzer_service.dart",
+      "role": "анализ import/export/part",
+      "summary": "Парсит директивы Dart через RegExp, классифицирует URI (dart:, package:, относитивные, part/part of), читает имя пакета из pubspec.yaml.",
+      "confidence": "high",
+      "sources": [
+        "class DartImportAnalyzerService",
+        "analyze → DartImportAnalysis",
+        "_classifyImport",
+        "package:yaml"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/dependency_resolver_service.dart",
+      "role": "разрешение зависимостей проекта",
+      "summary": "Читает pubspec.yaml и pubspec.lock, строит список ProjectDependency; для pub-источников дополняет данные через PubDevService.",
+      "confidence": "high",
+      "sources": [
+        "class DependencyResolverService",
+        "resolveProjectDependencies",
+        "PubDevService",
+        "_parseLockVersions"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/documentation_service.dart",
+      "role": "документация проекта",
+      "summary": "Создаёт markdown-секции в каталоге docs приложения (overview, changelog, dependencies, widgets и др.), экспортирует и ведёт change records через ProjectStorageService.",
+      "confidence": "high",
+      "sources": [
+        "class DocumentationService",
+        "sectionKeys",
+        "initializeDocumentation",
+        "exportDocumentation"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/file_documentation_service.dart",
+      "role": "документация файла",
+      "summary": "Инициализирует per-file docs (overview/notes/widgets/analysis/changelog/dependencies) под projects/<id>/files/<encodedPath>/docs; для Dart заполняет dependencies через DartImportAnalyzerService.",
+      "confidence": "high",
+      "sources": [
+        "class FileDocumentationService",
+        "initializeForFile",
+        "DartImportAnalyzerService",
+        "_getFileDataDirectory"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/git_service.dart",
+      "role": "обёртка над git CLI",
+      "summary": "Парсит porcelain-статус, определяет GitLab remote, отдаёт статус репозитория, историю файла/строки и commit graph (проект/файл) через Process.run git.",
+      "confidence": "high",
+      "sources": [
+        "class GitService",
+        "parseGitPorcelainLine",
+        "getRepositoryStatus",
+        "getFileHistory",
+        "getProjectCommitGraph"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/gitlab_api_service.dart",
+      "role": "HTTP-клиент GitLab API",
+      "summary": "Проверяет токен через /api/v4/user и выполняет GET/POST/Range-запросы к настроенному GitLab (GitLabSettings).",
+      "confidence": "high",
+      "sources": [
+        "class GitLabApiService",
+        "checkConnection",
+        "getJson",
+        "package:http"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/gitlab_ci_build_service.dart",
+      "role": "сборки GitLab CI",
+      "summary": "Строит ProjectBuildConfig из CI job names, триггерит pipeline, загружает историю jobs/артефакты через GitLabApiService и gitlab_ci_config_parser.",
+      "confidence": "high",
+      "sources": [
+        "class GitLabCiBuildService",
+        "listCiJobConfigs",
+        "triggerPipeline",
+        "import gitlab_ci_config_parser"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/gitlab_ci_config_parser.dart",
+      "role": "парсер .gitlab-ci.yml (jobs stage=build)",
+      "summary": "Извлекает имена job со stage build (константа gitLabBuildStageName), учитывает YAML anchors/merge; есть эвристики looksLikeCiBuildJobName и excluded stages.",
+      "confidence": "high",
+      "sources": [
+        "parseGitLabCiBuildJobNames",
+        "gitLabBuildStageName = 'build'",
+        "_parseAnchorDefinitions",
+        "isExcludedGitLabStage"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/global_package_metadata_service.dart",
+      "role": "глобальные метаданные пакетов",
+      "summary": "Хранит GlobalPackageMetadata в application support: project_manager/global_package_metadata.json (load/save/cache).",
+      "confidence": "high",
+      "sources": [
+        "class GlobalPackageMetadataService",
+        "_fileName = global_package_metadata.json",
+        "getApplicationSupportDirectory"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/media_analyzer_service.dart",
+      "role": "анализ привязок и usages медиа",
+      "summary": "Ищет классы AppAssets*/AppAssetsDesigned, парсит константы/методы путей ассетов и usages в Dart-файлах; возвращает MediaAnalysisResult.",
+      "confidence": "high",
+      "sources": [
+        "supportedAssetsClassNames",
+        "parseAssetsClassBindings",
+        "class MediaAnalyzerService.analyzeProject"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_context_service.dart",
+      "role": "сборка project-context.json",
+      "summary": "Агрегирует дерево файлов, медиа, build configs, git, agent profile/memory/knowledge и пишет .ai/project-context.json.",
+      "confidence": "high",
+      "sources": [
+        "comment: Aggregates all collected project metadata into `.ai/project-context.json`",
+        "class ProjectContextService",
+        "buildAndSave"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_files_service.dart",
+      "role": "дерево файлов и preview",
+      "summary": "Сканирует project root в ProjectFileNode с игнором .git/.dart_tool/build и др.; читает preview текста/изображений с лимитами размера; enum FilePreviewKind.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectFilesService",
+        "ignoredDirNames",
+        "loadFileTree",
+        "FilePreviewResult",
+        "FilePreviewKind"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_media_service.dart",
+      "role": "сканирование assets/",
+      "summary": "Сканирует папку assets, сверяет пути с flutter.assets в pubspec.yaml, обогащает через MediaAnalyzerService; возвращает ProjectMediaScanResult.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectMediaService",
+        "scanProjectMedia",
+        "parsePubspecDeclaredAssets",
+        "isAssetPathDeclared"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_semantic_index_service.dart",
+      "role": "семантическая индексация через Cursor CLI",
+      "summary": "Батчит пути (max 35), запускает inventory/deepen через CursorCliStreamRunner и project_index_prompt, сохраняет notes/questions/answers/session в store; поддерживает cancel и submitAnswer.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectSemanticIndexService",
+        "startInventory",
+        "deepenWithAnswers",
+        "maxFilesPerBatch = 35",
+        "ProjectSemanticIndexStore"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_semantic_index_store.dart",
+      "role": "хранилище семантического индекса",
+      "summary": "Читает/пишет JSON notes, open questions, answers и session под AgentProfilePaths.indexDir; mergeNotes объединяет входящие заметки.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectSemanticIndexStore",
+        "loadAll → SemanticIndexSnapshot",
+        "AgentProfilePaths.index*"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_storage_service.dart",
+      "role": "персистентность списка проектов",
+      "summary": "CRUD проектов в application support project_manager/projects.json и каталоги projects/<id> (docs/analysis/agent/builds).",
+      "confidence": "high",
+      "sources": [
+        "class ProjectStorageService",
+        "loadProjects/saveProjects",
+        "getProjectDataDirectory",
+        "getAnalysisDirectory comment Placeholder"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/project_validator_service.dart",
+      "role": "валидация Flutter/Dart проекта",
+      "summary": "Проверяет путь, наличие/парсинг pubspec.yaml, SDK через SdkCheckerService, платформенные папки и зависимости; возвращает ProjectValidationResult.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectValidatorService",
+        "validate",
+        "SdkCheckerService",
+        "pubspec.yaml not found"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/pub_dev_service.dart",
+      "role": "клиент pub.dev API",
+      "summary": "GET https://pub.dev/api/packages/<name>, кэширует latestVersion и description (таймаут 10с).",
+      "confidence": "high",
+      "sources": [
+        "class PubDevService",
+        "_baseUrl",
+        "fetchPackageInfo",
+        "PubDevPackageInfo"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/sdk_checker_service.dart",
+      "role": "проверка Flutter/Dart SDK",
+      "summary": "Запускает flutter/dart --version, перебирая PATH, FVM default, FLUTTER_ROOT и типичные пути Windows; возвращает SdkInfo.",
+      "confidence": "high",
+      "sources": [
+        "class SdkCheckerService",
+        "checkSdk",
+        "_flutterCandidates",
+        "FVM default"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/settings_service.dart",
+      "role": "настройки приложения (SharedPreferences)",
+      "summary": "Сохраняет locale, ширины панелей, uiScale, CursorCliSettings, GitLabSettings, ContextSyncSettings.",
+      "confidence": "high",
+      "sources": [
+        "class SettingsService",
+        "SharedPreferences",
+        "loadCursorCliSettings",
+        "loadContextSyncSettings"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/vscode_build_config_service.dart",
+      "role": "конфиги сборок из VS Code tasks",
+      "summary": "Парсит .vscode/tasks.json (JSONC) в ProjectBuildConfig либо подставляет defaultFlutterConfigs по платформам; утилиты normalizeJsonc/stripJsonComments.",
+      "confidence": "high",
+      "sources": [
+        "class VscodeBuildConfigService",
+        "scanProject",
+        "parseTasksJson",
+        "defaultFlutterConfigs"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/services/widget_analyzer_service.dart",
+      "role": "статический анализ виджетов",
+      "summary": "Сканирует Dart-файлы: классы extends Widget/State, конструкторы, usages по имени; исключает ключевые слова/_excludeCallNames; возвращает List<WidgetEntry>.",
+      "confidence": "high",
+      "sources": [
+        "class WidgetAnalyzerService",
+        "scanProject",
+        "_classExtendsPattern",
+        "_widgetCallPattern"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/state",
+      "role": "каталог состояния приложения",
+      "summary": "Содержит ChangeNotifier-состояния: AppSettingsState и ProjectManagerState (2 файла).",
+      "confidence": "high",
+      "sources": [
+        "directory listing: app_settings_state.dart, project_manager_state.dart"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/state/app_settings_state.dart",
+      "role": "состояние глобальных настроек",
+      "summary": "ChangeNotifier: locale, размеры панелей, uiScale, настройки Cursor CLI/GitLab/Context Sync и результаты checkConnection.",
+      "confidence": "high",
+      "sources": [
+        "class AppSettingsState extends ChangeNotifier",
+        "initialize",
+        "checkCursorCliConnection"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/state/project_manager_state.dart",
+      "role": "главное состояние менеджера проектов",
+      "summary": "Центральный ChangeNotifier: проекты, дерево файлов, открытые вкладки (WorkspaceTab), зависимости, виджеты, git, documentation, context sync и координация сервисов.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectManagerState",
+        "enum WorkspaceTab",
+        "enum DetailPanelSection",
+        "множество сервисов в конструкторе"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui",
+      "role": "UI-слой",
+      "summary": "Каталог интерфейса: dialogs, shell, views, widgets (в т.ч. file_documentation).",
+      "confidence": "high",
+      "sources": [
+        "directory tree: dialogs/, shell/, views/, widgets/"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs",
+      "role": "диалоги и секции настроек",
+      "summary": "Модальные диалоги (add project, settings sections, git graph/history, edit package metadata) и секции GitLab/Cursor CLI/Context Sync.",
+      "confidence": "high",
+      "sources": [
+        "файлы: add_project_dialog, settings sections, git_*_dialog, edit_package_metadata_dialog"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/add_project_dialog.dart",
+      "role": "диалог добавления проекта",
+      "summary": "StatefulWidget: выбор папки (FilePicker), валидация пути через ProjectManagerState, поля name/description/goal/notes и submit addProject.",
+      "confidence": "high",
+      "sources": [
+        "class AddProjectDialog",
+        "_browseDirectory",
+        "_validatePath",
+        "_submit"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/context_sync_settings_section.dart",
+      "role": "UI настроек Context Sync",
+      "summary": "Секция настроек: enabled, repoUrl, syncIntervalMinutes; показывает lastContextSyncCheck из AppSettingsState.",
+      "confidence": "high",
+      "sources": [
+        "class ContextSyncSettingsSection",
+        "ContextSyncSettings",
+        "AppSettingsState.lastContextSyncCheck"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/cursor_cli_settings_section.dart",
+      "role": "UI настроек Cursor CLI",
+      "summary": "Секция: enable, cliCommand, apiKey/env key, модель (preset/custom), проверка соединения через AppSettingsState.",
+      "confidence": "high",
+      "sources": [
+        "class CursorCliSettingsSection",
+        "CursorCliSettings",
+        "cliService / lastCursorCliCheck"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/edit_package_metadata_dialog.dart",
+      "role": "редактор метаданных пакета",
+      "summary": "Диалог правки GlobalPackageMetadata: customDescription, customNotes, updateRisks; static show().",
+      "confidence": "high",
+      "sources": [
+        "class EditPackageMetadataDialog",
+        "GlobalPackageMetadata",
+        "ProjectManagerState"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/git_graph_dialog.dart",
+      "role": "диалог графа коммитов",
+      "summary": "showGitGraphDialog / GitGraphDialog: загружает List<GitCommitGraphRow>, режимы graph|tree, ссылки GitLab при наличии статуса.",
+      "confidence": "high",
+      "sources": [
+        "showGitGraphDialog",
+        "enum GitGraphViewMode",
+        "GitCommitGraphView / GitCommitTreeView"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/git_history_dialog.dart",
+      "role": "диалог истории коммитов",
+      "summary": "showGitHistoryDialog / GitHistoryDialog: список GitCommitEntry для файла (опционально line), reload и ссылки GitLab.",
+      "confidence": "high",
+      "sources": [
+        "showGitHistoryDialog",
+        "class GitHistoryDialog",
+        "loadCommits",
+        "relativePath / line"
+      ],
+      "updatedAt": "2026-07-20T21:54:23.795080"
+    },
+    {
+      "path": "lib/ui/dialogs/gitlab_settings_section.dart",
+      "role": "секция настроек GitLab",
+      "summary": "StatefulWidget GitLabSettingsSection: поля baseUrl и personalAccessToken, переключатели enabled и useEnvironmentToken, кнопка checkGitLabConnection через AppSettingsState, ссылка на GitLabSettings.docsUrl.",
+      "confidence": "high",
+      "sources": [
+        "class GitLabSettingsSection",
+        "GitLabSettings / onChanged",
+        "appSettings.checkGitLabConnection"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/dialogs/settings_dialog.dart",
+      "role": "диалог настроек приложения",
+      "summary": "Dialog SettingsDialog: выбор locale (en/ru), слайдер uiScale, встраивает CursorCliSettingsSection, GitLabSettingsSection, ContextSyncSettingsSection; при сохранении пишет в AppSettingsState и вызывает reloadContextSyncSchedule.",
+      "confidence": "high",
+      "sources": [
+        "class SettingsDialog",
+        "CursorCliSettingsSection / GitLabSettingsSection / ContextSyncSettingsSection",
+        "appSettings.save*"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell",
+      "role": "каталог оболочки IDE",
+      "summary": "Шесть Dart-файлов layout главного окна: IdeShell, TopActionBar, ProjectTreePanel, ProjectFilesPanel, CenterWorkspace, DetailsPanel.",
+      "confidence": "high",
+      "sources": [
+        "directory listing: 6 .dart files"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell/center_workspace.dart",
+      "role": "центральная рабочая область",
+      "summary": "CenterWorkspace: при отсутствии проекта — EmptyStateView; иначе вкладки WorkspaceTab (overview…agent) или FilePreviewView для активного открытого файла; полосы _TabBar и _OpenFilesTabBar.",
+      "confidence": "high",
+      "sources": [
+        "class CenterWorkspace",
+        "switch (state.activeTab)",
+        "FilePreviewView / EmptyStateView"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell/details_panel.dart",
+      "role": "правая панель деталей",
+      "summary": "DetailsPanel с секциями DetailPanelSection: details (метаданные проекта/файла), documentation (FileDocSectionContent или ссылки документации проекта), tasks (_TasksPlaceholder с l10n.tasksTitle/tasksHint).",
+      "confidence": "high",
+      "sources": [
+        "class DetailsPanel",
+        "DetailPanelSection.details|documentation|tasks",
+        "class _TasksPlaceholder"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell/ide_shell.dart",
+      "role": "корневой каркас UI",
+      "summary": "IdeShell: Scaffold с TopActionBar, ResizableSidePanel(ProjectTreePanel), CenterWorkspace, DetailsPanel, _StatusBar (SDK, context sync, Cursor CLI, логи); поверх — LogConsoleOverlay; диалоги AddProjectDialog и SettingsDialog.",
+      "confidence": "high",
+      "sources": [
+        "class IdeShell",
+        "ProjectTreePanel / CenterWorkspace / DetailsPanel",
+        "LogConsoleOverlay"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell/project_files_panel.dart",
+      "role": "дерево файлов проекта",
+      "summary": "ProjectFilesPanel показывает state.fileTree с expand/select через ProjectManagerState; refresh через reloadProjectFiles.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectFilesPanel",
+        "state.fileTree / openFile / toggleDirectory"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell/project_tree_panel.dart",
+      "role": "левая панель проектов",
+      "summary": "ProjectTreePanel: список projects с selectProject, кнопка add, ниже разделитель и ProjectFilesPanel; высота списка — settings.projectsPaneHeight.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectTreePanel",
+        "ProjectFilesPanel",
+        "settings.setProjectsPaneHeight"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/shell/top_action_bar.dart",
+      "role": "верхняя панель действий",
+      "summary": "TopActionBar: кнопки addProject, refresh, exportDocs, settings и заголовок appTitle.",
+      "confidence": "high",
+      "sources": [
+        "class TopActionBar",
+        "onAddProject / onRefresh / onExportDocs / onSettings"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views",
+      "role": "каталог вкладок workspace",
+      "summary": "Двенадцать view-виджетов центральной области: overview, documentation, dependencies, widgets, media, gitlab, builds, analysis, agent (+ agent_side_panel), file preview, empty state.",
+      "confidence": "high",
+      "sources": [
+        "directory listing: 12 .dart files",
+        "imports in center_workspace.dart"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/agent_side_panel.dart",
+      "role": "боковая панель агента",
+      "summary": "AgentSidePanel со вкладками profile, memory, pending, indexing, ai, advanced; редактирование профиля/знаний через AgentProfileService, индексация/синхронизация через колбэки (onIndex, onSync, onConfirmLearning и др.), показ SemanticIndexSnapshot и AgentProgressPanel.",
+      "confidence": "high",
+      "sources": [
+        "enum _SideTab { profile, memory, pending, indexing, ai, advanced }",
+        "AgentProfileService / AgentContextOrchestrator",
+        "callbacks onIndex / onSync / onConfirmLearning"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/agent_view.dart",
+      "role": "вкладка Agent (чат и контекст)",
+      "summary": "AgentView: чат ProjectQa через CursorCliProjectQaService, история AgentChatHistoryService, режимы CursorCliMode и scope чтения/записи; загружает профиль, memory, knowledge, pending learning, semantic index; встраивает AgentSidePanel.",
+      "confidence": "high",
+      "sources": [
+        "class AgentView",
+        "CursorCliProjectQaService",
+        "AgentSidePanel / AgentChatHistoryService / ProjectSemanticIndexService"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/analysis_view.dart",
+      "role": "вкладка Analysis (контекст проекта)",
+      "summary": "AnalysisView по комментарию — поверхность индексации project-context (не полный чат); строит/обновляет контекст через AgentContextOrchestrator.refreshFullContext и пишет meta через AgentIndexMetaService.",
+      "confidence": "high",
+      "sources": [
+        "comment: Project-context indexing surface",
+        "AgentContextOrchestrator.refreshFullContext",
+        "AgentIndexMetaService.recordIndex"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/builds_view.dart",
+      "role": "вкладка Builds",
+      "summary": "BuildsView: страницы configurations и history; сканирует VS Code configs (VscodeBuildConfigService), локальный запуск BuildExecutionService, архив BuildArchiveService, GitLab CI через GitLabCiBuildService, история BuildHistoryLogger.",
+      "confidence": "high",
+      "sources": [
+        "class BuildsView",
+        "enum _BuildsPage { configurations, history }",
+        "VscodeBuildConfigService / BuildExecutionService / GitLabCiBuildService"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/dependencies_view.dart",
+      "role": "вкладка Dependencies",
+      "summary": "DependenciesView показывает project.dependencies, refreshDependencies, диалог EditPackageMetadataDialog для metadata пакетов.",
+      "confidence": "high",
+      "sources": [
+        "class DependenciesView",
+        "state.refreshDependencies",
+        "EditPackageMetadataDialog"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/documentation_view.dart",
+      "role": "вкладка Documentation",
+      "summary": "DocumentationView: боковой список секций DocumentationService.sectionKeys и MarkdownContent выбранной секции из project.documentationSections; ширина сайдбара — settings.docSidebarWidth.",
+      "confidence": "high",
+      "sources": [
+        "class DocumentationView",
+        "DocumentationService.sectionKeys",
+        "MarkdownContent"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/empty_state_view.dart",
+      "role": "пустое состояние workspace",
+      "summary": "EmptyStateView показывает welcomeTitle и welcomeHint, когда проект не выбран (используется из CenterWorkspace).",
+      "confidence": "high",
+      "sources": [
+        "class EmptyStateView",
+        "l10n.welcomeTitle / welcomeHint"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/file_preview_view.dart",
+      "role": "превью открытого файла",
+      "summary": "FilePreviewView для OpenedFile: текст с SyntaxHighlightPreview/поиском, markdown, SVG (image/text), растр RasterImagePreview, шрифты FontPreview; диалоги git history/graph.",
+      "confidence": "high",
+      "sources": [
+        "class FilePreviewView",
+        "FilePreviewKind / SvgPreviewMode",
+        "SyntaxHighlightPreview / FontPreview / RasterImagePreview"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/gitlab_view.dart",
+      "role": "вкладка Git/GitLab",
+      "summary": "GitLabView показывает GitRepositoryStatus (ветка, changes с фильтром staged/unstaged/untracked), кнопки history/graph, статус GitLab check и открытие gitlabWebUrl при isGitLabRemote.",
+      "confidence": "high",
+      "sources": [
+        "class GitLabView",
+        "state.gitRepositoryStatus",
+        "_GitChangeFilter / gitOpenInGitLab"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/media_view.dart",
+      "role": "вкладка Media",
+      "summary": "MediaView сканирует медиа через ProjectMediaService.scanProjectMedia, поиск/фильтр visualOnly, превью SVG/шрифтов и привязки MediaAssetBinding / MediaUsageEntry.",
+      "confidence": "high",
+      "sources": [
+        "class MediaView",
+        "ProjectMediaService.scanProjectMedia",
+        "FontPreview / flutter_svg"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/project_overview_view.dart",
+      "role": "вкладка Overview",
+      "summary": "ProjectOverviewView: имя/путь/статус/SDK, кнопки openInVsCode и openInCursor, ContextSyncProjectSection, сетка info, description/goal/notes, recent changeHistory.",
+      "confidence": "high",
+      "sources": [
+        "class ProjectOverviewView",
+        "ContextSyncProjectSection",
+        "openInVsCode / openInCursor"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/views/widgets_view.dart",
+      "role": "вкладка Widgets",
+      "summary": "WidgetsView: список custom widgets проекта/файла, поиск, детали конструктора и usages; refreshWidgets с cursorSettings; опциональный показ Cursor CLI log.",
+      "confidence": "high",
+      "sources": [
+        "class WidgetsView",
+        "WidgetOrigin.custom",
+        "state.refreshWidgets(cursorSettings:)"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets",
+      "role": "каталог UI-виджетов",
+      "summary": "Переиспользуемые виджеты: agent progress, context sync, file documentation/*, font/git preview, markdown, log overlay, panel resize и др. (18 файлов в дереве).",
+      "confidence": "high",
+      "sources": [
+        "directory listing under lib/ui/widgets"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/agent_progress_panel.dart",
+      "role": "панель шагов агента",
+      "summary": "AgentProgressPanel: раскрываемый список AgentProgressStep и опциональный live partialOutput в MarkdownContent.",
+      "confidence": "high",
+      "sources": [
+        "class AgentProgressPanel",
+        "AgentProgressStep / partialOutput / isLive"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/context_sync_project_section.dart",
+      "role": "секция sync на Overview",
+      "summary": "ContextSyncProjectSection: редактирование project.contextId через updateProjectContextId, отображение ContextSyncStatus и кнопка sync при syncEnabled.",
+      "confidence": "high",
+      "sources": [
+        "class ContextSyncProjectSection",
+        "state.updateProjectContextId",
+        "state.contextSyncStatus / contextSyncSettings.isActive"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/file_documentation",
+      "role": "каталог док. секций файла",
+      "summary": "Виджеты документации открытого файла: primitives, overview, dependencies, widgets, роутер FileDocSectionContent.",
+      "confidence": "high",
+      "sources": [
+        "5 files under file_documentation/"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/file_documentation/doc_ui_primitives.dart",
+      "role": "примитивы UI документации",
+      "summary": "Общие виджеты DocSectionCard, DocMetaChip и связанные визуальные блоки для секций документации (IdeaColors).",
+      "confidence": "high",
+      "sources": [
+        "class DocSectionCard",
+        "class DocMetaChip"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/file_documentation/file_dependencies_doc_section.dart",
+      "role": "секция импортов файла",
+      "summary": "FileDependenciesDocSection рендерит DartImportAnalysis: project files, packages, dart SDK imports; открытие файлов/пакетов.",
+      "confidence": "high",
+      "sources": [
+        "class FileDependenciesDocSection",
+        "DartImportAnalysis",
+        "_ImportGroup"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/file_documentation/file_doc_section_content.dart",
+      "role": "роутер секций док. файла",
+      "summary": "FileDocSectionContent по sectionKey выбирает overview/dependencies/widgets или MarkdownContent; иначе DocEmptyState.",
+      "confidence": "high",
+      "sources": [
+        "class FileDocSectionContent",
+        "sectionKey == 'overview'|'dependencies'|'widgets'"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/file_documentation/file_overview_doc_section.dart",
+      "role": "обзор файла в документации",
+      "summary": "FileOverviewDocSection: имя, relativePath, DocMetaChip для language/lineCount/size.",
+      "confidence": "high",
+      "sources": [
+        "class FileOverviewDocSection",
+        "OpenedFile fields / DocMetaChip"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/file_documentation/file_widgets_doc_section.dart",
+      "role": "виджеты в документации файла",
+      "summary": "FileWidgetsDocSection фильтрует project.widgets по relativePath: определения и usages в файле.",
+      "confidence": "high",
+      "sources": [
+        "class FileWidgetsDocSection",
+        "forRelativeFile / definedInFile"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/font_preview.dart",
+      "role": "превью шрифта",
+      "summary": "FontPreview загружает файл шрифта (isPreviewableFontFile), регистрирует семейство и показывает sampleText; помечает unsupportedFormat.",
+      "confidence": "high",
+      "sources": [
+        "class FontPreview",
+        "_loadFont / isPreviewableFontFile"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/git_commit_graph_painter.dart",
+      "role": "отрисовка git-графа",
+      "summary": "CustomPainter GitCommitGraphPainter рисует lanes/edges для GitCommitGraphRow (константы gitGraphLaneWidth/RowHeight).",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitGraphPainter",
+        "GitCommitGraphRow / activeLanes / parentLanes"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/git_commit_graph_view.dart",
+      "role": "список коммитов с графом",
+      "summary": "GitCommitGraphView: ListView строк с GitCommitGraphPainter + GitCommitInfoColumn; tap открывает GitLab commit URL или onOpenCommit.",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitGraphView",
+        "buildGitLabCommitUrl",
+        "GitCommitGraphPainter / GitCommitInfoColumn"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/git_commit_info_column.dart",
+      "role": "текст строки коммита",
+      "summary": "GitCommitInfoColumn показывает shortHash, decorationsLabel, дату, subject, author из GitCommitGraphEntry.",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitInfoColumn",
+        "GitCommitGraphEntry fields"
+      ],
+      "updatedAt": "2026-07-20T21:55:46.912113"
+    },
+    {
+      "path": "lib/ui/widgets/git_commit_tree_guide_painter.dart",
+      "role": "отрисовка направляющих дерева коммитов",
+      "summary": "CustomPainter рисует вертикальные линии предков, «локоть» и точку узла для строки GitCommitTreeRow; использует IdeaColors и константы ширины отступов.",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitTreeGuidePainter extends CustomPainter",
+        "final GitCommitTreeRow row",
+        "import git_commit_graph_entry.dart / idea_theme.dart"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "lib/ui/widgets/git_commit_tree_view.dart",
+      "role": "вид дерева коммитов Git",
+      "summary": "StatefulWidget показывает список корней GitCommitTreeNode: flatten через flattenGitCommitTree, expand/collapse, ListView строк с GitCommitTreeGuidePainter и GitCommitInfoColumn; тап открывает URL коммита GitLab при наличии gitStatus.gitlabWebUrl.",
+      "confidence": "high",
+      "sources": [
+        "class GitCommitTreeView",
+        "flattenGitCommitTree / collectGitCommitTreeHashes",
+        "buildGitLabCommitUrl + launchUrl",
+        "GitCommitInfoColumn / GitCommitTreeGuidePainter"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "lib/ui/widgets/log_console_overlay.dart",
+      "role": "оверлей консоли логов",
+      "summary": "Плавающая панель над IDE: слушает AppLogService, фильтрует по источнику и уровню (THINK/INFO/WARN/ERROR), follow/copy/clear/hide; комментарий: «Floating log console over the whole IDE».",
+      "confidence": "high",
+      "sources": [
+        "/// Floating log console over the whole IDE.",
+        "AppLogService.instance.addListener / overlayVisible / hideOverlay",
+        "фильтр _level и _sourceFilter"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "lib/ui/widgets/markdown_content.dart",
+      "role": "рендер Markdown",
+      "summary": "StatelessWidget MarkdownBody с ExtensionSet.gitHubWeb; варианты compact/chat/document и legacy-флаг compact; ideaMarkdownStyleSheet задаёт типографику под IdeaColors.",
+      "confidence": "high",
+      "sources": [
+        "enum MarkdownContentVariant (compact/chat/document)",
+        "MarkdownBody + md.ExtensionSet.gitHubWeb",
+        "ideaMarkdownStyleSheet(...)"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "lib/ui/widgets/panel_resize_divider.dart",
+      "role": "разделитель изменения размера панелей",
+      "summary": "PanelResizeDivider — перетаскиваемый разделитель по Axis с onDelta и подсветкой hover/drag; ResizableSidePanel — SizedBox фиксированной ширины для дочернего виджета.",
+      "confidence": "high",
+      "sources": [
+        "class PanelResizeDivider / onDelta",
+        "SystemMouseCursors.resizeColumn|resizeRow",
+        "class ResizableSidePanel"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "lib/ui/widgets/raster_image_preview.dart",
+      "role": "превью растрового изображения",
+      "summary": "Показывает локальный файл через Image.file внутри InteractiveViewer (масштаб 0.25–4); при ошибке — локализованный текст failedToLoadImage.",
+      "confidence": "high",
+      "sources": [
+        "Image.file(File(filePath))",
+        "InteractiveViewer minScale/maxScale",
+        "errorBuilder → context.l10n.failedToLoadImage"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "lib/ui/widgets/syntax_highlight_preview.dart",
+      "role": "превью кода с подсветкой",
+      "summary": "Просмотр текста файла: номера строк, HighlightView по syntaxLanguageForFile, прокрутка к highlightLine/searchMatches, прозрачный read-only TextField для выделения; вкладки нормализуются в пробелы.",
+      "confidence": "high",
+      "sources": [
+        "HighlightView + ideaSyntaxTheme",
+        "syntaxLanguageForFile(fileName)",
+        "highlightLine / searchMatches / focusToken",
+        "normalizeContent replaceAll tabs"
+      ],
+      "updatedAt": "2026-07-20T21:56:21.048331"
+    },
+    {
+      "path": "linux",
+      "role": "платформенный каталог Linux",
+      "summary": "Корневая папка нативной Linux/GTK-сборки Flutter-приложения: CMake-конфигурация, runner и каталог flutter.",
+      "confidence": "high",
+      "sources": [
+        "наличие linux/CMakeLists.txt, linux/runner/, linux/flutter/"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/.gitignore",
+      "role": "gitignore",
+      "summary": "Игнорирует каталог flutter/ephemeral.",
+      "confidence": "high",
+      "sources": [
+        "содержимое: flutter/ephemeral"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/CMakeLists.txt",
+      "role": "корневой CMake Linux",
+      "summary": "Задаёт BINARY_NAME project_manager и APPLICATION_ID com.projectmanager.project_manager; подключает Flutter, GTK, runner и generated_plugins.cmake; настраивает установку relocatable bundle.",
+      "confidence": "high",
+      "sources": [
+        "set(BINARY_NAME \"project_manager\")",
+        "set(APPLICATION_ID \"com.projectmanager.project_manager\")",
+        "add_subdirectory(\"runner\")",
+        "include(flutter/generated_plugins.cmake)",
+        "pkg_check_modules(GTK ...)"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/flutter",
+      "role": "каталог Flutter tool (Linux)",
+      "summary": "Содержит CMake-правила Flutter library/tool backend и сгенерированные файлы регистрации плагинов; ephemeral исключён из git.",
+      "confidence": "high",
+      "sources": [
+        "linux/flutter/CMakeLists.txt",
+        "generated_plugin_registrant.*",
+        "generated_plugins.cmake",
+        "linux/.gitignore: flutter/ephemeral"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/flutter/CMakeLists.txt",
+      "role": "CMake Flutter library",
+      "summary": "Не для ручного редактирования: подключает ephemeral/generated_config.cmake, объявляет INTERFACE-библиотеку flutter (libflutter_linux_gtk.so, ICU, AOT), зависит от GTK/GLIB/GIO и цели flutter_assemble через tool_backend.sh.",
+      "confidence": "high",
+      "sources": [
+        "комментарий: should not be edited",
+        "FLUTTER_LIBRARY ... libflutter_linux_gtk.so",
+        "add_custom_target(flutter_assemble ...)",
+        "tool_backend.sh"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/flutter/generated_plugin_registrant.cc",
+      "role": "ignored",
+      "summary": "Сгенерированный файл: регистрирует UrlLauncherPlugin через fl_register_plugins.",
+      "confidence": "high",
+      "sources": [
+        "Generated file. Do not edit.",
+        "url_launcher_linux/url_launcher_plugin.h",
+        "fl_register_plugins"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/flutter/generated_plugin_registrant.h",
+      "role": "ignored",
+      "summary": "Сгенерированный заголовок с объявлением fl_register_plugins(FlPluginRegistry*).",
+      "confidence": "high",
+      "sources": [
+        "Generated file. Do not edit.",
+        "void fl_register_plugins(FlPluginRegistry* registry)"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/flutter/generated_plugins.cmake",
+      "role": "ignored",
+      "summary": "Сгенерированный CMake: FLUTTER_PLUGIN_LIST содержит url_launcher_linux; FLUTTER_FFI_PLUGIN_LIST содержит jni; подключает плагины и bundling библиотек.",
+      "confidence": "high",
+      "sources": [
+        "Generated file, do not edit.",
+        "url_launcher_linux",
+        "jni",
+        "add_subdirectory(.../.plugin_symlinks/...)"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/runner",
+      "role": "каталог нативного runner",
+      "summary": "Исходники и CMake исполняемого GTK-приложения, хостящего Flutter view.",
+      "confidence": "high",
+      "sources": [
+        "runner/CMakeLists.txt",
+        "main.cc",
+        "my_application.cc/.h"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/runner/CMakeLists.txt",
+      "role": "CMake runner",
+      "summary": "Создаёт executable ${BINARY_NAME} из main.cc, my_application.cc и generated_plugin_registrant.cc; линкует flutter и GTK; задаёт APPLICATION_ID.",
+      "confidence": "high",
+      "sources": [
+        "add_executable(${BINARY_NAME} ...)",
+        "target_link_libraries(... flutter)",
+        "PkgConfig::GTK",
+        "add_definitions(-DAPPLICATION_ID=...)"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/runner/main.cc",
+      "role": "точка входа Linux",
+      "summary": "Создаёт MyApplication и запускает g_application_run.",
+      "confidence": "high",
+      "sources": [
+        "my_application_new()",
+        "g_application_run(G_APPLICATION(app), argc, argv)"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/runner/my_application.cc",
+      "role": "реализация GtkApplication",
+      "summary": "MyApplication на базе GtkApplication: окно 1280x720, заголовок Project Manager, FlView с чёрным фоном, регистрация плагинов, передача argv в Dart; G_APPLICATION_NON_UNIQUE.",
+      "confidence": "high",
+      "sources": [
+        "G_DEFINE_TYPE(MyApplication...)",
+        "gtk_header_bar_set_title(..., \"Project Manager\")",
+        "fl_view_new",
+        "fl_register_plugins",
+        "G_APPLICATION_NON_UNIQUE",
+        "gdk_rgba_parse(..., \"#000000\")"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    },
+    {
+      "path": "linux/runner/my_application.h",
+      "role": "заголовок MyApplication",
+      "summary": "Объявляет MyApplication как final GtkApplication и функцию my_application_new().",
+      "confidence": "high",
+      "sources": [
+        "G_DECLARE_FINAL_TYPE(... GtkApplication)",
+        "MyApplication* my_application_new()"
+      ],
+      "updatedAt": "2026-07-20T21:57:04.072409"
+    }
+  ]
+}

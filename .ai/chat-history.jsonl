@@ -1,0 +1,7 @@
+{"id":"804f3b4b-aca3-4ab3-9f23-057ce8c902ee","role":"user","text":"Что это за проект ?","timestamp":"2026-07-20T21:03:34.135165","isError":false}
+{"id":"fd8ed028-b7d8-4eef-8d64-f3d9a9f5f377","role":"assistant","text":"The command line is too long.","timestamp":"2026-07-20T21:03:34.492586","isError":true}
+{"id":"7047eda6-8835-42d5-a10d-774f42d5e4c0","role":"user","text":"Что это за проект","timestamp":"2026-07-20T21:11:42.148898","isError":false}
+{"id":"459da4a3-87db-4492-a04c-627bed0a821e","role":"assistant","text":"error: option '--mode <mode>' argument 'agent' is invalid. Allowed choices are plan, ask.","timestamp":"2026-07-20T21:11:43.983416","isError":true}
+
+{"id":"b37a003f-f7cf-4eb0-8d5a-a560a48c91a1","role":"user","text":"Что это за проект ?","timestamp":"2026-07-20T21:03:34.135165","isError":false}
+{"id":"4db8dd3a-a0c0-420c-9137-eabf24935554","role":"assistant","text":"The command line is too long.","timestamp":"2026-07-20T21:03:34.492586","isError":true}

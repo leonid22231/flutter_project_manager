@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/models/widget_origin.dart';
+import 'package:project_manager/services/analysis/cursor_cli_prompt_delivery.dart';
 import 'package:project_manager/services/analysis/widget_analysis_backend.dart';
 import 'package:project_manager/services/analysis/widget_analysis_result.dart';
 import 'package:project_manager/services/cursor_cli_logger.dart';
@@ -120,50 +121,59 @@ ${jsonEncode(custom)}
     }
   }
 
-  Future<ProcessResult> _runAgent(String projectRoot, String prompt) {
+  Future<ProcessResult> _runAgent(String projectRoot, String prompt) async {
     final env = Map<String, String>.from(Platform.environment);
     if (!settings.useEnvironmentApiKey && settings.apiKey.trim().isNotEmpty) {
       env['CURSOR_API_KEY'] = settings.apiKey.trim();
     }
 
-    final args = <String>[
+    final argsWithoutPrompt = <String>[
       '-p',
       '--output-format',
       'json',
-      '--mode',
-      'ask',
+      ...CursorCliMode.ask.cliModeArgs,
       '--trust',
       '--workspace',
       projectRoot,
       '--model',
       settings.defaultModel,
-      prompt,
     ];
+
+    final prepared = await CursorCliPromptDelivery.prepare(
+      projectRoot: projectRoot,
+      argsWithoutPrompt: argsWithoutPrompt,
+      prompt: prompt,
+    );
 
     _log.info(
       'Running agent command.',
       source: 'widgets',
       logRoot: projectRoot,
       data: {
-        'args': args.take(8).join(' '),
+        'args': prepared.args.take(8).join(' '),
         'promptChars': prompt.length,
+        'promptViaFile': prepared.promptFile != null,
       },
     );
 
-    if (Platform.isWindows) {
-      return Process.run(
-        settings.cliCommand.trim(),
-        args,
-        environment: env,
-        runInShell: true,
-      );
-    }
+    try {
+      if (Platform.isWindows) {
+        return await Process.run(
+          settings.cliCommand.trim(),
+          prepared.args,
+          environment: env,
+          runInShell: true,
+        );
+      }
 
-    return Process.run(
-      settings.cliCommand.trim(),
-      args,
-      environment: env,
-    );
+      return await Process.run(
+        settings.cliCommand.trim(),
+        prepared.args,
+        environment: env,
+      );
+    } finally {
+      await prepared.cleanup();
+    }
   }
 
   List<WidgetEntry> _mergeEnrichment(

@@ -1,0 +1,12 @@
+{
+  "phase": "inventory",
+  "totalFiles": 283,
+  "processedFiles": 239,
+  "currentBatch": 17,
+  "totalBatches": 20,
+  "currentFolder": "pubspec.lock",
+  "pass": 1,
+  "error": null,
+  "startedAt": "2026-07-20T21:42:33.238987",
+  "updatedAt": "2026-07-20T21:57:04.112422"
+}

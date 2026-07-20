@@ -391,6 +391,117 @@ class AppLocalizations {
         'Connected · $model',
         'Подключен · $model',
       );
+  String get statusBarContextSyncLabel =>
+      _s('Context sync', 'Синхр. контекста');
+  String get statusBarContextSyncDisabled => _s('Off', 'Выкл');
+  String get statusBarContextSyncSyncing => _s('Syncing…', 'Синхронизация…');
+  String get statusBarContextSyncOk => _s('OK', 'OK');
+  String get statusBarContextSyncError => _s('Error', 'Ошибка');
+  String get statusBarContextSyncIdle => _s('Ready', 'Готово');
+
+  // Agent workspace rework
+  String get agentSideProfile => _s('Profile', 'Профиль');
+  String get agentSideMemory => _s('Memory', 'Память');
+  String get agentSidePending => _s('Learning', 'Обучение');
+  String get agentSideIndex => _s('Index', 'Индекс');
+  String get agentSideAi => _s('.ai', '.ai');
+  String get agentSideAdvanced => _s('Advanced', 'Дополнительно');
+  String get agentReadAiOnly => _s('Read: .ai', 'Чтение: .ai');
+  String get agentReadRepo => _s('Read: repo', 'Чтение: репо');
+  String get agentWriteNone => _s('Write: none', 'Запись: нет');
+  String get agentWriteAi => _s('Write: .ai', 'Запись: .ai');
+  String get agentWriteProject => _s('Write: project', 'Запись: проект');
+  String get agentIndexNow => _s('Index project', 'Индексировать проект');
+  String get agentIndexSnapshotOnly =>
+      _s('Refresh snapshot only', 'Только снимок структуры');
+  String get agentIndexSemantic =>
+      _s('Semantic index (Cursor)', 'Семантический индекс (Cursor)');
+  String get agentIndexCancel => _s('Cancel indexing', 'Отменить индексацию');
+  String get agentIndexContinue =>
+      _s('Continue with answers', 'Продолжить с ответами');
+  String get agentIndexOpenQuestions =>
+      _s('Open questions', 'Открытые вопросы');
+  String get agentIndexNoQuestions =>
+      _s('No open questions.', 'Нет открытых вопросов.');
+  String get agentIndexAnswer => _s('Answer', 'Ответить');
+  String get agentIndexSkip => _s('Skip', 'Пропустить');
+  String get agentIndexUnknown => _s('Unknown', 'Неизвестно');
+  String get agentIndexNotesCount => _s('File notes', 'Заметки по файлам');
+  String get agentIndexProgress => _s('Indexing progress', 'Прогресс индексации');
+  String get agentIndexWhyNeeded => _s('Why needed', 'Зачем нужно');
+  String get agentIndexAnswerHint =>
+      _s('Your answer…', 'Ваш ответ…');
+  String get agentIndexPreferQuestionsHint => _s(
+        'Index asks when unsure — prefer answering over letting the agent invent.',
+        'Индекс спрашивает при неясностях — лучше ответить, чем позволить агенту домысливать.',
+      );
+  String get agentIndexStale => _s('Index stale', 'Индекс устарел');
+  String get agentIndexMissing => _s('No index yet', 'Индекса ещё нет');
+  String agentIndexReady(String when) =>
+      _s('Indexed: $when', 'Индексировано: $when');
+  String agentIndexBatchProgress(int current, int total, String folder) => _s(
+        'Batch $current/$total · $folder',
+        'Пакет $current/$total · $folder',
+      );
+  String get agentIndexIncluded => _s('Included', 'Включено');
+  String get agentIndexExcluded => _s('Excluded / truncated', 'Исключено / обрезано');
+  String get uiScaleLabel => _s('UI scale', 'Масштаб интерфейса');
+  String uiScaleValue(String value) =>
+      _s('Scale: $value', 'Масштаб: $value');
+  String get appLogsTitle => _s('Application logs', 'Логи приложения');
+  String get appLogsEmpty => _s('No log entries yet.', 'Пока нет записей.');
+  String get appLogsClear => _s('Clear logs', 'Очистить логи');
+  String get appLogsCopy => _s('Copy logs', 'Копировать логи');
+  String get appLogsFollow => _s('Follow latest', 'Следить за новыми');
+  String get appLogsFilterSource => _s('Source…', 'Источник…');
+  String get appLogsFilterLevel => _s('Level', 'Уровень');
+  String get appLogsAllLevels => _s('All levels', 'Все уровни');
+  String get appLogsOpen => _s('Logs', 'Логи');
+  String get agentIndexLiveThoughts =>
+      _s('Agent activity', 'Активность агента');
+  String get agentIndexLiveEmpty => _s(
+        'Waiting for Cursor agent output…',
+        'Ждём вывод Cursor-агента…',
+      );
+  String agentPendingLearning(int count) =>
+      _s('Learning ($count)', 'Обучение ($count)');
+  String get agentPendingEmpty =>
+      _s('No pending learning candidates.', 'Нет кандидатов на обучение.');
+  String get agentConfirmLearning =>
+      _s('Confirm selected', 'Подтвердить выбранное');
+  String get agentDiscardLearning => _s('Discard', 'Отклонить');
+  String get agentImproveProfile =>
+      _s('Improve profile', 'Улучшить профиль');
+  String get agentRetry => _s('Retry last', 'Повторить последний');
+  String get agentExportTranscript =>
+      _s('Export transcript', 'Экспорт диалога');
+  String agentTranscriptExported(String path) =>
+      _s('Transcript saved: $path', 'Диалог сохранён: $path');
+  String get agentAttachPath => _s('Attach path', 'Прикрепить путь');
+  String get agentAttachPathHint =>
+      _s('Absolute file or folder path', 'Абсолютный путь к файлу или папке');
+  String get agentAttachMissing =>
+      _s('Path not found', 'Путь не найден');
+  String get agentShowReasoning => _s('Show steps', 'Показать шаги');
+  String get agentHideReasoning => _s('Hide steps', 'Скрыть шаги');
+  String agentWorkspaceWelcome(String projectName) => _s(
+        'Chat with the project agent for $projectName. Index the repo, manage .ai memory, and ask clarifying questions.',
+        'Общайтесь с агентом проекта $projectName. Индексируйте репозиторий, управляйте памятью .ai и задавайте уточняющие вопросы.',
+      );
+  String get agentChipArchitecture =>
+      _s('Explain architecture', 'Объясни архитектуру');
+  String get agentChipMemory => _s('What is in memory?', 'Что в memory?');
+  String get agentChipUpdateKnowledge =>
+      _s('Update knowledge', 'Обнови knowledge');
+  String get agentChipIndex => _s('Index the project', 'Проиндексируй проект');
+  String get agentChipGaps =>
+      _s('What are you missing?', 'Чего тебе не хватает?');
+  String get analysisOpenAgent =>
+      _s('Open Agent chat', 'Открыть чат Агента');
+  String get analysisContextOnlyHint => _s(
+        'Analysis focuses on project-context indexing. Full chat lives on the Agent tab.',
+        'Анализ отвечает за индексацию project-context. Полный чат — на вкладке Агент.',
+      );
 
   // Widgets
   String get widgetInventory => _s('Widget Inventory', 'Каталог виджетов');
@@ -1000,6 +1111,56 @@ class AppLocalizations {
       _s('Connection failed', 'Подключение не удалось');
   String gitlabConnectedAs(String username) =>
       _s('Connected as $username', 'Подключено как $username');
+
+  // Context sync
+  String get contextSyncSection =>
+      _s('Context sync', 'Синхронизация контекста');
+  String get contextSyncSectionHint => _s(
+        'Shared GitHub repository for syncing each project’s `.ai` folder across devices.',
+        'Общий GitHub-репозиторий для синхронизации папки `.ai` проектов между устройствами.',
+      );
+  String get contextSyncEnabled =>
+      _s('Enable context sync', 'Включить синхронизацию контекста');
+  String get contextSyncRepoUrl =>
+      _s('Repository for saving', 'Репозиторий для сохранения');
+  String get contextSyncIntervalMinutes =>
+      _s('Sync interval (minutes)', 'Интервал синхронизации (минуты)');
+  String get contextSyncTestRepo =>
+      _s('Test repository access', 'Проверить доступ к репозиторию');
+  String get contextSyncRepoOk =>
+      _s('Repository is reachable', 'Репозиторий доступен');
+  String get contextSyncRepoFailed =>
+      _s('Repository check failed', 'Проверка репозитория не удалась');
+  String get contextSyncProjectSection =>
+      _s('Context ID & sync', 'ID контекста и синхронизация');
+  String get contextSyncProjectHint => _s(
+        'This ID is the folder name in the shared repo. Set the same ID on another project to share `.ai` context.',
+        'Этот ID — имя папки в общем репозитории. Укажите тот же ID в другом проекте, чтобы делить контекст `.ai`.',
+      );
+  String get contextSyncProjectId => _s('ID', 'ID');
+  String get contextSyncProjectIdHint =>
+      _s('Any ID without path separators', 'Любой ID без разделителей пути');
+  String get contextSyncCopyId => _s('Copy ID', 'Копировать ID');
+  String get contextSyncIdCopied => _s('ID copied', 'ID скопирован');
+  String get contextSyncEditId => _s('Edit ID', 'Изменить ID');
+  String get contextSyncGenerateId =>
+      _s('Generate new ID', 'Сгенерировать новый ID');
+  String get contextSyncNow => _s('Sync now', 'Синхронизировать сейчас');
+  String get contextSyncInvalidId => _s(
+        'Invalid ID. Do not use / or \\.',
+        'Некорректный ID. Нельзя использовать / или \\.',
+      );
+  String get contextSyncDisabled => _s(
+        'Context sync is disabled in app settings',
+        'Синхронизация контекста отключена в настройках приложения',
+      );
+  String get contextSyncIdle => _s('Not synced yet', 'Ещё не синхронизировано');
+  String get contextSyncInProgress =>
+      _s('Syncing…', 'Синхронизация…');
+  String get contextSyncFailed =>
+      _s('Sync failed', 'Синхронизация не удалась');
+  String contextSyncLastAt(String timestamp) =>
+      _s('Last sync: $timestamp', 'Последняя синхронизация: $timestamp');
 
   String get failedToLoadFile =>
       _s('Failed to load file.', 'Не удалось загрузить файл.');

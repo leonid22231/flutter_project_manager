@@ -23,14 +23,16 @@ Then extract NEW durable facts from the Q&A below. Merge with existing knowledge
 
 $langNote
 
-Return ONLY valid JSON (no markdown wrapper):
+Return ONLY valid JSON (no markdown fence around the JSON object).
+String field values MAY use Markdown (**bold**, `code`, lists).
+
 {
-  "memory": ["short atomic fact about how the project works"],
+  "memory": ["short atomic fact about how the project works (Markdown ok)"],
   "insights": [
-    {"topic": "Architecture|Widget|Dependency|Build|Git|Agent", "content": "detailed insight", "sources": ["path or context section"]}
+    {"topic": "Architecture|Widget|Dependency|Build|Git|Agent", "content": "detailed Markdown insight", "sources": ["path or context section"]}
   ],
-  "architectureSummary": "optional updated 2-5 sentence architecture summary or empty string",
-  "workflowsSummary": "optional updated workflows/build/dev summary or empty string"
+  "architectureSummary": "optional updated architecture summary (Markdown) or empty string",
+  "workflowsSummary": "optional updated workflows/build/dev summary (Markdown) or empty string"
 }
 
 Rules:

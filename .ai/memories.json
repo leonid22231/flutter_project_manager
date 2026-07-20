@@ -1,42 +1,145 @@
 [
-  {
-    "id": "ai-storage-no-task-id",
-    "date": "2026-07-11",
-    "source": "user",
-    "summary": "В этом проекте сохранение в .ai не требует номера задачи — сохранять весь контекст, использовать дату/время вместо task id.",
-    "applied_rules": ["user-confirmed-rule"],
-    "notes": "Папки сессий: .ai/YYYY-MM-DD/ или .ai/YYYY-MM-DD-HHMMSS/. Не спрашивать task id."
-  },
-  {
-    "id": "builds-stage-build-only",
-    "date": "2026-07-11",
-    "source": "user",
-    "summary": "Вкладка сборок показывает только задачи стадии build; pre_build и analyze_and_test исключены из tasks.json и GitLab CI.",
-    "applied_rules": ["user-confirmed-rule"],
-    "notes": "Стадии: pre_build, analyze_and_test, build."
-  },
-  {
-    "id": "use-flutter-debug-log-fs-mcp",
-    "date": "2026-07-11",
-    "source": "user",
-    "summary": "Для отладки использовать MCP flutter-debug-log-fs: читать .ai/logs/flutter_debug.log и C:\\tmp\\debug-console-logs\\flutter_debug.log",
-    "applied_rules": ["user-confirmed-rule"],
-    "notes": "BuildHistoryLogger пишет в project_manager/.ai/logs/. Перезагрузить MCP после .cursor/mcp.json."
-  },
-  {
-    "id": "builds-history-page-tabs",
-    "date": "2026-07-11",
-    "source": "user",
-    "summary": "История сборок GitLab: пагинация через переключение вкладок/страниц, а не кнопку «Загрузить ещё» с дописыванием вниз.",
-    "applied_rules": ["user-confirmed-rule"],
-    "notes": "_HistoryPageTabs с ChoiceChip; _loadHistoryPage заменяет _history."
-  },
-  {
-    "id": "project-context-analysis-tab",
-    "date": "2026-07-11",
-    "source": "assistant",
-    "summary": "Вкладка Анализ: .ai/project-context.json из всех данных проекта; Q&A через Cursor CLI ask mode.",
-    "applied_rules": ["minimize-scope", "reuse-cursor-cli-pattern"],
-    "notes": "ProjectContextService + AnalysisView; placeholder удалён."
-  }
+    {
+        "id":  "ai-storage-no-task-id",
+        "date":  "2026-07-11",
+        "source":  "user",
+        "summary":  "В этом проекте сохранение в .ai не требует номера задачи — сохранять весь контекст, использовать дату/время вместо task id.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "Папки сессий: .ai/YYYY-MM-DD/ или .ai/YYYY-MM-DD-HHMMSS/. Не спрашивать task id."
+    },
+    {
+        "id":  "builds-stage-build-only",
+        "date":  "2026-07-11",
+        "source":  "user",
+        "summary":  "Вкладка сборок показывает только задачи стадии build; pre_build и analyze_and_test исключены из tasks.json и GitLab CI.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "Стадии: pre_build, analyze_and_test, build."
+    },
+    {
+        "id":  "use-flutter-debug-log-fs-mcp",
+        "date":  "2026-07-11",
+        "source":  "user",
+        "summary":  "Для отладки использовать MCP flutter-debug-log-fs: читать .ai/logs/flutter_debug.log и C:\\tmp\\debug-console-logs\\flutter_debug.log",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "BuildHistoryLogger пишет в project_manager/.ai/logs/. Перезагрузить MCP после .cursor/mcp.json."
+    },
+    {
+        "id":  "builds-history-page-tabs",
+        "date":  "2026-07-11",
+        "source":  "user",
+        "summary":  "История сборок GitLab: пагинация через переключение вкладок/страниц, а не кнопку «Загрузить ещё» с дописыванием вниз.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "_HistoryPageTabs с ChoiceChip; _loadHistoryPage заменяет _history."
+    },
+    {
+        "id":  "project-context-analysis-tab",
+        "date":  "2026-07-11",
+        "source":  "assistant",
+        "summary":  "Вкладка Анализ: .ai/project-context.json из всех данных проекта; Q\u0026A через Cursor CLI ask mode.",
+        "applied_rules":  [
+                              "minimize-scope",
+                              "reuse-cursor-cli-pattern"
+                          ],
+        "notes":  "ProjectContextService + AnalysisView; placeholder удалён."
+    },
+    {
+        "id":  "context-sync-github",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "Синхронизация .ai через GitHub: contextId (ручной/GitLab/uuid), системный git, полный автосинк, merge через Cursor CLI или аддитивно.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "Репозиторий в настройках приложения; папка = contextId; внутренний Project.id не менять."
+    },
+    {
+        "id":  "agent-tab-workspace",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "Вкладка Агент — chat+side panel workspace; Анализ только index; learning по подтверждению; режимы ask/plan/agent.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "Требования: .ai/2026-07-20/agent-tab-requirements.md"
+    },
+    {
+        "id":  "agent-memory-sources-unified",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "Вкладка Memory должна показывать memories.json и summary сессий (.ai/YYYY-MM-DD*), не только пустой agent-memory.json.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "agent-memory.json — editable; diary/session — read-only в UI."
+    },
+    {
+        "id":  "agent-index-and-windows-cmdline",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "Индексация «ничего не делает»: Spacer в Wrap ломал тулбар; длинный промпт Cursor CLI на Windows — file delivery.",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "CursorCliPromptDelivery + try/finally для _isIndexing."
+    },
+    {
+        "id":  "agent-ui-markdown-everywhere",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "Везде, где агент пишет текст в UI, рендерить Markdown (чат, reasoning, память, knowledge, pending, preview профиля).",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  "Редакторы остаются TextField; рядом live Markdown preview."
+    },
+    {
+        "id":  "semantic-index-qa-ui-scale",
+        "date":  "2026-07-20",
+        "source":  "user",
+        "summary":  "Индексация = полный обход проекта через Cursor с вопросами пользователю (без домыслов); UI scale настраиваемый (дефолт 1.0).",
+        "applied_rules":  [
+                              "user-confirmed-rule"
+                          ],
+        "notes":  ".ai/index/*; prefer questions; Settings slider 0.70–1.25."
+    },
+    {
+        "id":  "mem-20260720-214106",
+        "date":  "2026-07-20T14:41:06Z",
+        "source":  "user",
+        "summary":  "In-app log overlay over UI + agent THINK during semantic indexing; status-bar Logs button",
+        "applied_rules":  [
+                              "ai-storage-no-task-id"
+                          ],
+        "notes":  "AppLogService + LogConsoleOverlay; Index live thoughts panel"
+    },
+    {
+        "id":  "mem-20260720-context-sync-merge",
+        "date":  "2026-07-20T14:53:40Z",
+        "source":  "assistant",
+        "summary":  "Context sync merge: additive union local+remote; prefer local when more complete (index-session, logs).",
+        "applied_rules":  [
+                              "ai-storage-no-task-id",
+                              "context-sync-github"
+                          ],
+        "notes":  "Workspace sync session 1784559144279; output in merged/."
+    },
+    {
+        "id":  "mem-20260720-context-sync-merge-v2",
+        "date":  "2026-07-20T14:59:17Z",
+        "source":  "assistant",
+        "summary":  "Context sync merge v2: local strict-superset of remote for index notes/questions/logs; kept local index-session batch 17/20.",
+        "applied_rules":  [
+                              "ai-storage-no-task-id",
+                              "context-sync-github"
+                          ],
+        "notes":  "Workspace sync session 1784559441690; output in merged/; task temp-20260720-215905."
+    }
 ]

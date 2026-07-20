@@ -8,6 +8,7 @@ import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/services/agent_profile_service.dart';
 import 'package:project_manager/services/agent_context_orchestrator.dart';
 import 'package:project_manager/services/analysis/cursor_cli_stream_parser.dart';
+import 'package:project_manager/services/analysis/cursor_cli_prompt_delivery.dart';
 import 'package:project_manager/services/analysis/project_qa_agent_prompt.dart';
 import 'package:project_manager/services/cursor_cli_logger.dart';
 
@@ -116,6 +117,11 @@ class CursorCliProjectQaService {
     ProjectContextRefreshInput? contextRefresh,
     List<ProjectQaMessage> history = const [],
     ProjectQaStreamCallback? onStreamUpdate,
+    CursorCliMode mode = CursorCliMode.ask,
+    bool autoLearn = true,
+    String? readScope,
+    String? writeScope,
+    List<String> attachments = const [],
   }) async {
     if (!settings.enabled) {
       return const ProjectQaResult(
@@ -155,6 +161,10 @@ class CursorCliProjectQaService {
       contextPath: contextPath,
       responseLanguageCode: effectiveLanguage,
       history: history,
+      mode: mode,
+      readScope: readScope,
+      writeScope: writeScope,
+      attachments: attachments,
     );
     final started = DateTime.now();
 
@@ -165,6 +175,7 @@ class CursorCliProjectQaService {
       data: {
         'command': settings.cliCommand,
         'model': settings.defaultModel,
+        'mode': mode.cliValue,
         'questionChars': trimmed.length,
         'historyMessages': history.length,
         'appLanguage': responseLanguageCode,
@@ -180,6 +191,7 @@ class CursorCliProjectQaService {
         projectRoot: projectRoot,
         settings: settings,
         prompt: prompt,
+        mode: mode,
         onStreamUpdate: onStreamUpdate,
       );
       final elapsed = DateTime.now().difference(started).inMilliseconds;
@@ -222,13 +234,14 @@ class CursorCliProjectQaService {
         reasoningSteps: streamResult.reasoningSteps,
       );
 
-      if (contextRefresh != null) {
+      if (autoLearn && contextRefresh != null) {
         _contextOrchestrator.learnFromInteraction(
           settings: settings,
           contextInput: contextRefresh,
           question: trimmed,
           answer: result.answer,
           appLanguageCode: responseLanguageCode,
+          saveAsPending: true,
         );
       }
 
@@ -250,6 +263,10 @@ class CursorCliProjectQaService {
     required String contextPath,
     required String responseLanguageCode,
     required List<ProjectQaMessage> history,
+    CursorCliMode mode = CursorCliMode.ask,
+    String? readScope,
+    String? writeScope,
+    List<String> attachments = const [],
   }) async {
     final profile = await _agentProfile.loadOrCreateProfile(
       projectRoot,
@@ -259,8 +276,28 @@ class CursorCliProjectQaService {
     final knowledge = await _agentProfile.loadKnowledge(projectRoot);
     final aiFolder = await _agentProfile.scanAiFolder(projectRoot);
 
+    final scopeNotes = StringBuffer()
+      ..writeln('Operating mode: ${mode.cliValue}.')
+      ..writeln('Read scope: ${readScope ?? 'repo'}.')
+      ..writeln('Write scope: ${writeScope ?? 'none'}.');
+    if (mode == CursorCliMode.ask) {
+      scopeNotes.writeln('Do not modify any files.');
+    } else if (mode == CursorCliMode.plan) {
+      scopeNotes.writeln('Produce a plan only. Do not modify files.');
+    } else if (writeScope == 'ai') {
+      scopeNotes.writeln('You may modify files only under the .ai/ folder.');
+    } else if (writeScope == 'project') {
+      scopeNotes.writeln('You may modify project files as needed.');
+    }
+    if (attachments.isNotEmpty) {
+      scopeNotes.writeln('User attachments (prioritize):');
+      for (final path in attachments) {
+        scopeNotes.writeln('- $path');
+      }
+    }
+
     return ProjectQaAgentPrompt.build(
-      question: question,
+      question: '$question\n\n---\n${scopeNotes.toString()}',
       contextPath: contextPath,
       responseLanguageCode: responseLanguageCode,
       profile: profile,
@@ -275,6 +312,7 @@ class CursorCliProjectQaService {
     required String projectRoot,
     required CursorCliSettings settings,
     required String prompt,
+    required CursorCliMode mode,
     ProjectQaStreamCallback? onStreamUpdate,
   }) async {
     final env = Map<String, String>.from(Platform.environment);
@@ -282,149 +320,160 @@ class CursorCliProjectQaService {
       env['CURSOR_API_KEY'] = settings.apiKey.trim();
     }
 
-    final args = <String>[
+    final argsWithoutPrompt = <String>[
       '-p',
       '--output-format',
       'stream-json',
       '--stream-partial-output',
-      '--mode',
-      'ask',
+      ...mode.cliModeArgs,
+      if (mode == CursorCliMode.agent) '--force',
       '--trust',
       '--workspace',
       projectRoot,
       '--model',
       settings.defaultModel,
-      prompt,
     ];
+
+    final prepared = await CursorCliPromptDelivery.prepare(
+      projectRoot: projectRoot,
+      argsWithoutPrompt: argsWithoutPrompt,
+      prompt: prompt,
+    );
 
     _log.info(
       'Running project Q&A agent command.',
       source: 'analysis',
       logRoot: projectRoot,
       data: {
-        'args': args.take(9).join(' '),
+        'args': prepared.args.take(9).join(' '),
         'promptChars': prompt.length,
+        'promptViaFile': prepared.promptFile != null,
       },
     );
 
-    final process = Platform.isWindows
-        ? await Process.start(
-            settings.cliCommand.trim(),
-            args,
-            environment: env,
-            runInShell: true,
-          )
-        : await Process.start(
-            settings.cliCommand.trim(),
-            args,
-            environment: env,
-          );
-
-    final reasoningSteps = <ProjectQaReasoningStep>[];
-    final pendingTools = <String, int>{};
-    var partialAnswer = '';
-    var finalAnswer = '';
-    final stderrBuffer = StringBuffer();
-
-    void emitUpdate({bool isComplete = false, String? error}) {
-      onStreamUpdate?.call(
-        ProjectQaStreamUpdate(
-          partialAnswer: finalAnswer.isNotEmpty ? finalAnswer : partialAnswer,
-          reasoningSteps: List.unmodifiable(reasoningSteps),
-          isComplete: isComplete,
-          error: error,
-        ),
-      );
-    }
-
-    final stdoutFuture = process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen((line) {
-      final event = CursorCliStreamParser.parseLine(line);
-      if (event == null) return;
-
-      switch (event.kind) {
-        case CursorCliStreamEventKind.textDelta:
-          partialAnswer += event.text ?? '';
-          emitUpdate();
-        case CursorCliStreamEventKind.assistantSegment:
-          final segment = event.text?.trim();
-          if (segment != null && segment.isNotEmpty) {
-            reasoningSteps.add(
-              ProjectQaReasoningStep(
-                text: segment,
-                timestamp: DateTime.now(),
-                isComplete: true,
-              ),
+    try {
+      final process = Platform.isWindows
+          ? await Process.start(
+              settings.cliCommand.trim(),
+              prepared.args,
+              environment: env,
+              runInShell: true,
+            )
+          : await Process.start(
+              settings.cliCommand.trim(),
+              prepared.args,
+              environment: env,
             );
-            emitUpdate();
-          }
-        case CursorCliStreamEventKind.toolStarted:
-          final label = _formatToolStarted(event);
-          pendingTools[event.toolPath ?? label] = reasoningSteps.length;
-          reasoningSteps.add(
-            ProjectQaReasoningStep(
-              text: label,
-              timestamp: DateTime.now(),
-            ),
-          );
-          if (partialAnswer.trim().isNotEmpty) {
-            reasoningSteps.add(
-              ProjectQaReasoningStep(
-                text: partialAnswer.trim(),
-                timestamp: DateTime.now(),
-                isComplete: true,
-              ),
-            );
-            partialAnswer = '';
-          }
-          emitUpdate();
-        case CursorCliStreamEventKind.toolCompleted:
-          final key = event.toolPath ?? _formatToolStarted(event);
-          final index = pendingTools.remove(key);
-          if (index != null && index < reasoningSteps.length) {
-            reasoningSteps[index] = reasoningSteps[index].copyWith(
-              text: _formatToolCompleted(event),
-              isComplete: true,
-            );
-          } else {
-            reasoningSteps.add(
-              ProjectQaReasoningStep(
-                text: _formatToolCompleted(event),
-                timestamp: DateTime.now(),
-                isComplete: true,
-              ),
-            );
-          }
-          emitUpdate();
-        case CursorCliStreamEventKind.result:
-          finalAnswer = event.text ?? finalAnswer;
-          if (event.isError) {
-            emitUpdate(isComplete: true, error: finalAnswer);
-          } else {
-            emitUpdate(isComplete: true);
-          }
+
+      final reasoningSteps = <ProjectQaReasoningStep>[];
+      final pendingTools = <String, int>{};
+      var partialAnswer = '';
+      var finalAnswer = '';
+      final stderrBuffer = StringBuffer();
+
+      void emitUpdate({bool isComplete = false, String? error}) {
+        onStreamUpdate?.call(
+          ProjectQaStreamUpdate(
+            partialAnswer: finalAnswer.isNotEmpty ? finalAnswer : partialAnswer,
+            reasoningSteps: List.unmodifiable(reasoningSteps),
+            isComplete: isComplete,
+            error: error,
+          ),
+        );
       }
-    });
 
-    final stderrFuture = process.stderr.transform(utf8.decoder).listen((chunk) {
-      stderrBuffer.write(chunk);
-    });
+      final stdoutFuture = process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+        final event = CursorCliStreamParser.parseLine(line);
+        if (event == null) return;
 
-    await stdoutFuture.asFuture<void>();
-    await stderrFuture.asFuture<void>();
-    final exitCode = await process.exitCode;
+        switch (event.kind) {
+          case CursorCliStreamEventKind.textDelta:
+            partialAnswer += event.text ?? '';
+            emitUpdate();
+          case CursorCliStreamEventKind.assistantSegment:
+            final segment = event.text?.trim();
+            if (segment != null && segment.isNotEmpty) {
+              reasoningSteps.add(
+                ProjectQaReasoningStep(
+                  text: segment,
+                  timestamp: DateTime.now(),
+                  isComplete: true,
+                ),
+              );
+              emitUpdate();
+            }
+          case CursorCliStreamEventKind.toolStarted:
+            final label = _formatToolStarted(event);
+            pendingTools[event.toolPath ?? label] = reasoningSteps.length;
+            reasoningSteps.add(
+              ProjectQaReasoningStep(
+                text: label,
+                timestamp: DateTime.now(),
+              ),
+            );
+            if (partialAnswer.trim().isNotEmpty) {
+              reasoningSteps.add(
+                ProjectQaReasoningStep(
+                  text: partialAnswer.trim(),
+                  timestamp: DateTime.now(),
+                  isComplete: true,
+                ),
+              );
+              partialAnswer = '';
+            }
+            emitUpdate();
+          case CursorCliStreamEventKind.toolCompleted:
+            final key = event.toolPath ?? _formatToolStarted(event);
+            final index = pendingTools.remove(key);
+            if (index != null && index < reasoningSteps.length) {
+              reasoningSteps[index] = reasoningSteps[index].copyWith(
+                text: _formatToolCompleted(event),
+                isComplete: true,
+              );
+            } else {
+              reasoningSteps.add(
+                ProjectQaReasoningStep(
+                  text: _formatToolCompleted(event),
+                  timestamp: DateTime.now(),
+                  isComplete: true,
+                ),
+              );
+            }
+            emitUpdate();
+          case CursorCliStreamEventKind.result:
+            finalAnswer = event.text ?? finalAnswer;
+            if (event.isError) {
+              emitUpdate(isComplete: true, error: finalAnswer);
+            } else {
+              emitUpdate(isComplete: true);
+            }
+        }
+      });
 
-    final answer = finalAnswer.trim().isNotEmpty ? finalAnswer : partialAnswer;
-    emitUpdate(isComplete: true);
+      final stderrFuture =
+          process.stderr.transform(utf8.decoder).listen((chunk) {
+        stderrBuffer.write(chunk);
+      });
 
-    return _AgentStreamResult(
-      exitCode: exitCode,
-      stderr: stderrBuffer.toString(),
-      answer: answer,
-      reasoningSteps: reasoningSteps,
-    );
+      await stdoutFuture.asFuture<void>();
+      await stderrFuture.asFuture<void>();
+      final exitCode = await process.exitCode;
+
+      final answer = finalAnswer.trim().isNotEmpty ? finalAnswer : partialAnswer;
+      emitUpdate(isComplete: true);
+
+      return _AgentStreamResult(
+        exitCode: exitCode,
+        stderr: stderrBuffer.toString(),
+        answer: answer,
+        reasoningSteps: reasoningSteps,
+      );
+    } finally {
+      await prepared.cleanup();
+    }
   }
 
   String _formatToolStarted(CursorCliStreamEvent event) {

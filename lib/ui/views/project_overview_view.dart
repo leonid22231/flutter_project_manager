@@ -4,6 +4,7 @@ import 'package:project_manager/core/utils/platform_utils.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/l10n/l10n_extensions.dart';
 import 'package:project_manager/models/project.dart';
+import 'package:project_manager/ui/widgets/context_sync_project_section.dart';
 
 class ProjectOverviewView extends StatelessWidget {
   const ProjectOverviewView({super.key, required this.project});
@@ -69,7 +70,10 @@ class ProjectOverviewView extends StatelessWidget {
                 icon: const Icon(Icons.terminal, size: 16),
                 label: Text(l10n.openInCursor),
               ),
-            ],          ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          ContextSyncProjectSection(project: project),
           const SizedBox(height: 24),
           _InfoGrid(project: project),
           const SizedBox(height: 24),

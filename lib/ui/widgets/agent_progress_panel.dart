@@ -161,12 +161,10 @@ class _AgentProgressPanelState extends State<AgentProgressPanel> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          SelectableText(
-                            widget.partialOutput,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  fontFamily: 'monospace',
-                                  fontSize: 10,
-                                ),
+                          MarkdownContent(
+                            data: widget.partialOutput,
+                            padding: EdgeInsets.zero,
+                            compact: true,
                           ),
                         ],
                       ],

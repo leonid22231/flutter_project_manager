@@ -1,0 +1,20 @@
+{
+  "id": "2026-07-20",
+  "title": "Context sync via GitHub",
+  "status": "completed",
+  "created_at": "2026-07-20T19:56:00Z",
+  "updated_at": "2026-07-20T20:30:00Z",
+  "tags": ["context-sync", "github", "ai-folder"],
+  "owner": "agent",
+  "summary": "Implemented .ai context sync to a shared GitHub repo via system git; editable contextId; Cursor CLI / additive merge; auto sync on open/watch/timer.",
+  "steps": [
+    "Added Project.contextId with migration and GitLab/uuid generation",
+    "Added ContextSyncSettings and app settings UI",
+    "Implemented git/merge/orchestrator services",
+    "Wired auto-sync into ProjectManagerState",
+    "Added overview UI + l10n + unit tests"
+  ],
+  "attachments": [],
+  "branch": "main",
+  "last_commit": "ffcce58"
+}

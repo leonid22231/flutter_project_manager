@@ -176,6 +176,7 @@ class ProjectContextService {
       'generatedAt': generatedAt.toIso8601String(),
       'project': {
         'id': project.id,
+        'contextId': project.contextId,
         'name': project.name,
         'path': project.path,
         'description': project.description,

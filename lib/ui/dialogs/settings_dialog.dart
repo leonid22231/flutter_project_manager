@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
+import 'package:project_manager/models/context_sync_settings.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/gitlab_settings.dart';
+import 'package:project_manager/services/settings_service.dart';
 import 'package:project_manager/state/app_settings_state.dart';
+import 'package:project_manager/state/project_manager_state.dart';
+import 'package:project_manager/ui/dialogs/context_sync_settings_section.dart';
 import 'package:project_manager/ui/dialogs/cursor_cli_settings_section.dart';
 import 'package:project_manager/ui/dialogs/gitlab_settings_section.dart';
 import 'package:provider/provider.dart';
@@ -19,6 +23,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late Locale _selectedLocale;
   late CursorCliSettings _cursorCliSettings;
   late GitLabSettings _gitlabSettings;
+  late ContextSyncSettings _contextSyncSettings;
+  late double _uiScale;
 
   @override
   void initState() {
@@ -27,6 +33,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
     _selectedLocale = settings.locale;
     _cursorCliSettings = settings.cursorCliSettings;
     _gitlabSettings = settings.gitlabSettings;
+    _contextSyncSettings = settings.contextSyncSettings;
+    _uiScale = settings.uiScale;
   }
 
   @override
@@ -76,6 +84,27 @@ class _SettingsDialogState extends State<SettingsDialog> {
                           setState(() => _selectedLocale = locale),
                     ),
                     const SizedBox(height: 20),
+                    Text(
+                      l10n.uiScaleLabel.toUpperCase(),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      l10n.uiScaleValue(_uiScale.toStringAsFixed(2)),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    Slider(
+                      value: _uiScale,
+                      min: SettingsService.minUiScale,
+                      max: SettingsService.maxUiScale,
+                      divisions: 11,
+                      label: _uiScale.toStringAsFixed(2),
+                      onChanged: (v) => setState(() => _uiScale = v),
+                    ),
+                    const SizedBox(height: 20),
                     const Divider(),
                     const SizedBox(height: 20),
                     CursorCliSettingsSection(
@@ -91,6 +120,14 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       onChanged: (value) =>
                           setState(() => _gitlabSettings = value),
                     ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 20),
+                    ContextSyncSettingsSection(
+                      settings: _contextSyncSettings,
+                      onChanged: (value) =>
+                          setState(() => _contextSyncSettings = value),
+                    ),
                   ],
                 ),
               ),
@@ -100,9 +137,14 @@ class _SettingsDialogState extends State<SettingsDialog> {
               onSave: () async {
                 final appSettings = context.read<AppSettingsState>();
                 await appSettings.setLocale(_selectedLocale);
+                await appSettings.setUiScale(_uiScale);
                 await appSettings.saveCursorCliSettings(_cursorCliSettings);
                 await appSettings.saveGitLabSettings(_gitlabSettings);
-                if (context.mounted) Navigator.of(context).pop();
+                await appSettings.saveContextSyncSettings(_contextSyncSettings);
+                if (context.mounted) {
+                  context.read<ProjectManagerState>().reloadContextSyncSchedule();
+                  Navigator.of(context).pop();
+                }
               },
             ),
           ],

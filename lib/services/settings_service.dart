@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:project_manager/core/layout/panel_layout_defaults.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
+import 'package:project_manager/models/context_sync_settings.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/gitlab_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,10 +12,16 @@ class SettingsService {
   static const _languageKey = 'settings_language';
   static const _cursorCliSettingsKey = 'settings_cursor_cli';
   static const _gitlabSettingsKey = 'settings_gitlab';
+  static const _contextSyncSettingsKey = 'settings_context_sync';
   static const _leftPanelWidthKey = 'layout_left_panel_width';
   static const _rightPanelWidthKey = 'layout_right_panel_width';
   static const _docSidebarWidthKey = 'layout_doc_sidebar_width';
   static const _projectsPaneHeightKey = 'layout_projects_pane_height';
+  static const _uiScaleKey = 'settings_ui_scale';
+
+  static const defaultUiScale = 1.0;
+  static const minUiScale = 0.70;
+  static const maxUiScale = 1.25;
 
   Future<Locale> loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
@@ -68,6 +75,15 @@ class SettingsService {
   Future<void> saveProjectsPaneHeight(double value) =>
       saveDouble(_projectsPaneHeightKey, value);
 
+  Future<double> loadUiScale() async {
+    final value = await loadDouble(_uiScaleKey);
+    if (value == null) return defaultUiScale;
+    return value.clamp(minUiScale, maxUiScale);
+  }
+
+  Future<void> saveUiScale(double value) =>
+      saveDouble(_uiScaleKey, value.clamp(minUiScale, maxUiScale));
+
   Future<CursorCliSettings> loadCursorCliSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_cursorCliSettingsKey);
@@ -108,5 +124,29 @@ class SettingsService {
   Future<void> saveGitLabSettings(GitLabSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_gitlabSettingsKey, jsonEncode(settings.toJson()));
+  }
+
+  Future<ContextSyncSettings> loadContextSyncSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_contextSyncSettingsKey);
+    if (raw == null || raw.isEmpty) {
+      return const ContextSyncSettings();
+    }
+
+    try {
+      return ContextSyncSettings.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return const ContextSyncSettings();
+    }
+  }
+
+  Future<void> saveContextSyncSettings(ContextSyncSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _contextSyncSettingsKey,
+      jsonEncode(settings.toJson()),
+    );
   }
 }

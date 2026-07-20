@@ -8,8 +8,10 @@ import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/git_repository_status.dart';
 import 'package:project_manager/models/global_package_metadata.dart';
 import 'package:project_manager/models/project.dart';
+import 'package:project_manager/services/agent_learning_pending_service.dart';
 import 'package:project_manager/services/agent_profile_service.dart';
 import 'package:project_manager/services/analysis/agent_learning_prompt.dart';
+import 'package:project_manager/services/analysis/cursor_cli_prompt_delivery.dart';
 import 'package:project_manager/services/analysis/cursor_cli_stream_runner.dart';
 import 'package:project_manager/services/cursor_cli_logger.dart';
 import 'package:project_manager/services/project_context_service.dart';
@@ -35,10 +37,13 @@ class AgentContextOrchestrator {
   AgentContextOrchestrator({
     ProjectContextService? contextService,
     AgentProfileService? agentProfileService,
+    AgentLearningPendingService? learningPendingService,
     CursorCliLogger? logger,
     CursorCliStreamRunner? streamRunner,
   })  : _contextService = contextService ?? ProjectContextService(),
         _agentProfile = agentProfileService ?? AgentProfileService(),
+        _learningPending =
+            learningPendingService ?? AgentLearningPendingService(),
         _log = logger ?? CursorCliLogger.instance,
         _streamRunner = streamRunner ?? CursorCliStreamRunner(logger: logger);
 
@@ -48,6 +53,7 @@ class AgentContextOrchestrator {
 
   final ProjectContextService _contextService;
   final AgentProfileService _agentProfile;
+  final AgentLearningPendingService _learningPending;
   final CursorCliLogger _log;
   final CursorCliStreamRunner _streamRunner;
 
@@ -76,14 +82,15 @@ class AgentContextOrchestrator {
     );
   }
 
-  Future<void> learnFromInteraction({
+  Future<LearningPendingStore?> learnFromInteraction({
     required CursorCliSettings settings,
     required ProjectContextRefreshInput contextInput,
     required String question,
     required String answer,
     required String appLanguageCode,
+    bool saveAsPending = true,
   }) async {
-    if (!settings.enabled) return;
+    if (!settings.enabled) return null;
 
     final projectRoot = contextInput.project.path;
     final languageCode = UserLanguageUtils.resolveResponseLanguageCode(
@@ -110,11 +117,23 @@ class AgentContextOrchestrator {
     );
     if (raw == null) {
       await refreshFullContext(contextInput, languageCode: languageCode);
-      return;
+      return null;
     }
 
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      if (saveAsPending) {
+        final pending =
+            await _learningPending.replaceFromLearningJson(projectRoot, decoded);
+        _log.info(
+          'Learning candidates saved for confirmation.',
+          source: 'agent-learn',
+          logRoot: projectRoot,
+          data: {'candidates': pending.candidates.length},
+        );
+        return pending;
+      }
+
       final memoryFacts = (decoded['memory'] as List<dynamic>?)
               ?.map((e) => e.toString())
               .toList() ??
@@ -150,7 +169,50 @@ class AgentContextOrchestrator {
     }
 
     await refreshFullContext(contextInput, languageCode: languageCode);
+    return null;
   }
+
+  Future<void> confirmPendingLearning({
+    required ProjectContextRefreshInput contextInput,
+    required LearningPendingStore store,
+    required String languageCode,
+  }) async {
+    final projectRoot = contextInput.project.path;
+    final selected = store.candidates.where((c) => c.selected).toList();
+    final memoryFacts = selected
+        .where((c) => c.kind == 'memory')
+        .map((c) => c.content)
+        .toList();
+    final insights = selected
+        .where((c) => c.kind == 'insight')
+        .map(
+          (c) => <String, dynamic>{
+            'topic': c.topic ?? '',
+            'content': c.content,
+            'sources': c.sources,
+          },
+        )
+        .toList();
+    String? architecture;
+    String? workflows;
+    for (final c in selected) {
+      if (c.kind == 'architecture') architecture = c.content;
+      if (c.kind == 'workflows') workflows = c.content;
+    }
+
+    await _agentProfile.mergeLearnedFacts(
+      projectRoot,
+      memoryFacts: memoryFacts,
+      insights: insights,
+      architectureSummary: architecture,
+      workflowsSummary: workflows,
+    );
+    await _learningPending.clear(projectRoot);
+    await refreshFullContext(contextInput, languageCode: languageCode);
+  }
+
+  Future<void> discardPendingLearning(String projectRoot) =>
+      _learningPending.clear(projectRoot);
 
   Future<AgentSelfAnalysisResult> runSelfAnalysis({
     required CursorCliSettings settings,
@@ -455,48 +517,56 @@ class AgentContextOrchestrator {
       env['CURSOR_API_KEY'] = settings.apiKey.trim();
     }
 
-    final args = <String>[
+    final argsWithoutPrompt = <String>[
       '-p',
       '--output-format',
       'json',
-      '--mode',
-      'ask',
+      ...CursorCliMode.ask.cliModeArgs,
       '--trust',
       '--workspace',
       projectRoot,
       '--model',
       settings.defaultModel,
-      prompt,
     ];
 
     try {
-      final result = Platform.isWindows
-          ? await Process.run(
-              settings.cliCommand.trim(),
-              args,
-              environment: env,
-              runInShell: true,
-            ).timeout(jsonAgentTimeout)
-          : await Process.run(
-              settings.cliCommand.trim(),
-              args,
-              environment: env,
-            ).timeout(jsonAgentTimeout);
+      final prepared = await CursorCliPromptDelivery.prepare(
+        projectRoot: projectRoot,
+        argsWithoutPrompt: argsWithoutPrompt,
+        prompt: prompt,
+      );
+      try {
+        final result = Platform.isWindows
+            ? await Process.run(
+                settings.cliCommand.trim(),
+                prepared.args,
+                environment: env,
+                runInShell: true,
+              ).timeout(jsonAgentTimeout)
+            : await Process.run(
+                settings.cliCommand.trim(),
+                prepared.args,
+                environment: env,
+              ).timeout(jsonAgentTimeout);
 
-      if (result.exitCode != 0) {
-        _log.error(
-          'JSON agent failed.',
-          source: 'agent-learn',
-          logRoot: projectRoot,
-          data: {
-            'exitCode': result.exitCode,
-            'stderr': result.stderr.toString(),
-          },
-        );
-        return null;
+        if (result.exitCode != 0) {
+          _log.error(
+            'JSON agent failed.',
+            source: 'agent-learn',
+            logRoot: projectRoot,
+            data: {
+              'exitCode': result.exitCode,
+              'stderr': result.stderr.toString(),
+              'promptViaFile': prepared.promptFile != null,
+            },
+          );
+          return null;
+        }
+
+        return _extractJsonPayload(result.stdout.toString());
+      } finally {
+        await prepared.cleanup();
       }
-
-      return _extractJsonPayload(result.stdout.toString());
     } on TimeoutException {
       _log.warn(
         'JSON agent timed out after ${jsonAgentTimeout.inMinutes} min.',

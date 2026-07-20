@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:project_manager/core/utils/agent_log_paths.dart';
+import 'package:project_manager/services/app_log_service.dart';
 
 /// Persistent + in-memory log for build history / GitLab CI loading.
 /// Files land in `<logRoot>/.ai/logs/` for MCP [flutter-debug-log-fs].
@@ -58,10 +59,11 @@ class BuildHistoryLogger {
     String? logRoot,
     Map<String, Object?>? data,
   }) {
+    final resolvedSource = source ?? buildHistoryLogPrefix;
     final entry = BuildHistoryLogEntry(
       timestamp: DateTime.now(),
       level: level,
-      source: source ?? buildHistoryLogPrefix,
+      source: resolvedSource,
       message: message,
       data: data,
     );
@@ -69,6 +71,12 @@ class BuildHistoryLogger {
     if (_entries.length > _maxMemoryEntries) {
       _entries.removeRange(0, _entries.length - _maxMemoryEntries);
     }
+    AppLogService.instance.add(
+      level: level,
+      message: message,
+      source: resolvedSource,
+      data: data,
+    );
     final line = entry.format();
     _appendToFiles(line, entry: entry, logRoot: logRoot);
     debugPrint('[build-history] $line');

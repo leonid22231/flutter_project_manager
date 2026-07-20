@@ -1,0 +1,37 @@
+﻿{
+  "id": "2026-07-20",
+  "title": "In-app logging overlay",
+  "status": "done",
+  "created_at": "2026-07-20T19:56:00Z",
+  "updated_at": "2026-07-20T14:41:06Z",
+  "tags": [
+    "context-sync",
+    "agent-memory",
+    "index",
+    "cursor-cli",
+    "github",
+    "ai-folder",
+    "logging"
+  ],
+  "owner": "agent",
+  "summary": "Memory merges diary/sessions; index UI fixed (Spacer-in-Wrap); Cursor CLI long prompts via file on Windows. Also: Unified AppLogService, overlay on IdeShell, status-bar Logs, semantic-index THINK stream to logs + Index panel.",
+  "steps": [
+    "Memory loadMemory merges agent-memory + memories.json + sessions",
+    "Fixed Spacer inside Wrap breaking Agent toolbar",
+    "Index try/finally + snackbar + Index chip → onIndex",
+    "CursorCliPromptDelivery for Windows cmdline limit",
+    "Added Project.contextId with migration and GitLab/uuid generation",
+    "Added ContextSyncSettings and app settings UI",
+    "Implemented git/merge/orchestrator services",
+    "Wired auto-sync into ProjectManagerState",
+    "Added overview UI + l10n + unit tests",
+    "Agent Memory loadMemory merges diary + session contexts",
+    "App log overlay + semantic-index THINK stream to logs/Index panel"
+  ],
+  "attachments": [
+    "result-memory-sources.md",
+    "result-index-and-cmdline.md"
+  ],
+  "branch": "main",
+  "last_commit": "ffcce58"
+}

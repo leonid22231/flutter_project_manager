@@ -1,0 +1,77 @@
+{
+  "questions": [
+    {
+      "id": "change-record-category-values",
+      "path": "lib/models/change_record.dart",
+      "question": "Какие допустимые значения category у ChangeRecord, кроме наблюдаемого 'system'? Есть ли пользовательские категории?",
+      "whyNeeded": "В модели category — свободная String?; в коде создания виден только 'system', полный словарь категорий из файлов не следует.",
+      "options": [
+        "только system",
+        "фиксированный enum/список",
+        "произвольные строки пользователя",
+        "не важно для индекса"
+      ],
+      "status": "open"
+    },
+    {
+      "id": "media-is-designed-meaning",
+      "path": "lib/models/media_asset_binding.dart",
+      "question": "Флаг isDesigned в продукте означает только эвристику «путь не начинается с assets/», или есть отдельное понятие designed-ассетов?",
+      "whyNeeded": "В media_analyzer_service isDesigned выставляется как !path.startsWith('assets/'), но продуктовый смысл «designed» в самой модели не описан.",
+      "options": [
+        "только эвристика по пути",
+        "отдельный класс/API designed assets",
+        "другое — уточнить"
+      ],
+      "status": "open"
+    },
+    {
+      "id": "gitlab-ci-stage-build-convention",
+      "path": "lib/services/gitlab_ci_config_parser.dart",
+      "question": "Жёстко зашиты stage name «build» и excluded stages (pre_build, analyze_and_test, test). Это универсальная политика приложения или ожидание конкретного CI-шаблона ваших проектов?",
+      "whyNeeded": "Без этого нельзя корректно описать продуктовный scope парсера: только job stage=build или любой CI.",
+      "options": [
+        "Только stage=build по дизайн-контракту приложения",
+        "Эвристика под наши типовые .gitlab-ci.yml",
+        "В будущем должны настраиваться"
+      ],
+      "status": "open"
+    },
+    {
+      "id": "media-appassets-naming",
+      "path": "lib/services/media_analyzer_service.dart",
+      "question": "Поиск bindings завязан на имена классов AppAssets / AppAssetsDesigned / префикс AppAssets. Это обязательная конвенция проектов, которыми управляет приложение?",
+      "whyNeeded": "Индекс не должен утверждать, что медиа-привязки работают для произвольных asset-классов без подтверждения конвенции.",
+      "options": [
+        "Да, ожидаемая конвенция во всех целевых проектах",
+        "Только для части проектов / legacy",
+        "Планируется обобщить"
+      ],
+      "status": "open"
+    },
+    {
+      "id": "details-panel-tasks-scope",
+      "path": "lib/ui/shell/details_panel.dart",
+      "question": "Секция tasks в DetailsPanel сейчас только _TasksPlaceholder. Нужно ли индексировать её как запланированную функцию задач, или как постоянный placeholder без продукта?",
+      "whyNeeded": "По коду виден только placeholder (tasksTitle/tasksHint); без ответа нельзя зафиксировать продуктовую роль секции.",
+      "options": [
+        "только placeholder без планов",
+        "запланированы задачи проекта",
+        "другое (описать)"
+      ],
+      "status": "open"
+    },
+    {
+      "id": "gitlab-view-primary-scope",
+      "path": "lib/ui/views/gitlab_view.dart",
+      "question": "Вкладка называется GitLabView, но основной контент — локальный git status/changes. Считать ли её общей Git-вкладкой с опциональным GitLab, или вкладкой именно GitLab?",
+      "whyNeeded": "Имя класса и l10n.gitSectionTitle/GitLab-кнопки расходятся; влияет на role/summary в индексе.",
+      "options": [
+        "общая Git-вкладка (+ GitLab если remote)",
+        "вкладка GitLab (git — часть)",
+        "другое (описать)"
+      ],
+      "status": "open"
+    }
+  ]
+}

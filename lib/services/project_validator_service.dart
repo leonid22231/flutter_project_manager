@@ -62,8 +62,9 @@ class ProjectValidatorService {
         const ValidationIssue(
           message: 'Flutter SDK is not available in PATH.',
           suggestion:
-              'Install Flutter from https://docs.flutter.dev/get-started/install '
-              'and add it to your system PATH.',
+              'Install Flutter or FVM, add it to PATH, then fully quit and reopen '
+              'this app (Reload Window is not enough). FVM default is usually '
+              '%USERPROFILE%\\fvm\\default\\bin.',
         ),
       );
     }

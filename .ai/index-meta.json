@@ -1,0 +1,16 @@
+{
+  "lastIndexedAt": "2026-07-20T21:31:51.477105",
+  "contextPath": "E:\\PROJECTS\\flutter_project_manager\\.ai\\project-context.json",
+  "sizeBytes": 206017,
+  "includedSources": [
+    "project-context.json",
+    "agent-profile.json",
+    "agent-memory.json",
+    "memories.json",
+    "project-knowledge.json",
+    "source tree (sampled)",
+    "file tree"
+  ],
+  "excludedSources": [],
+  "notes": "Structure snapshot only"
+}

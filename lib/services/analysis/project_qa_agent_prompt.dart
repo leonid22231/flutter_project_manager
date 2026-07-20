@@ -144,6 +144,8 @@ Known files:''');
       buffer.writeln('\n- `.ai/project-context.json` — project snapshot');
       buffer.writeln('- `.ai/agent-profile.json` — your identity and character');
       buffer.writeln('- `.ai/agent-memory.json` — learned facts');
+      buffer.writeln('- `.ai/memories.json` — project diary (preferences / rules)');
+      buffer.writeln('- `.ai/YYYY-MM-DD*/` — session task folders with context.json');
       buffer.writeln('- `.ai/logs/` — debug and CLI logs');
     } else {
       for (final entry in entries) {
@@ -172,7 +174,7 @@ These entries were added by the user. Treat them as high-priority context:
       buffer.writeln('- ${entry.content.trim()}');
     }
     buffer.writeln('''
-You may also read `.ai/agent-memory.json` for the full list.''');
+You may also read `.ai/agent-memory.json` and `.ai/memories.json` for the full list.''');
     return buffer.toString();
   }
 
@@ -220,7 +222,7 @@ Follow these instructions unless they conflict with read-only safety.''';
 ## Self-awareness questions
 
 If the user asks about you, the agent, `.ai`, memory, character, or prompt:
-1. Read `.ai/agent-profile.json` and `.ai/agent-memory.json` if needed.
+1. Read `.ai/agent-profile.json`, `.ai/agent-memory.json`, and `.ai/memories.json` if needed.
 2. Explain your name, role, character, and what is stored in `.ai/`.
 3. Mention that the user can edit identity, memory, and instructions in the **Agent** tab of Project Manager.
 4. Do not claim capabilities you lack (you are read-only in ask mode).''';

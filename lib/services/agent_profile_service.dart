@@ -18,8 +18,19 @@ class AgentProfileService {
         'Full snapshot: project data + agent memory + knowledge (auto-updated).',
     'agent-profile.json': 'Agent identity, character, skills, self-analysis.',
     'agent-memory.json': 'Learned facts and user-provided memory entries.',
+    'memories.json':
+        'Project diary of preferences, rules and recurring instructions.',
+    'config.json': 'Local .ai agent configuration for this project.',
     'project-knowledge.json':
         'Accumulated project knowledge: architecture, workflows, insights.',
+    'chat-history.jsonl': 'Persisted Agent tab chat transcript.',
+    'learning-pending.json': 'Learning candidates awaiting user confirmation.',
+    'index-meta.json': 'Last index time and included/excluded sources.',
+    'index/': 'Semantic index: file notes, open questions, answers, session.',
+    'index/file-notes.json': 'Per-file role/summary from semantic indexing.',
+    'index/open-questions.json': 'Questions the indexer asked the user.',
+    'index/answers.json': 'User answers to index questions.',
+    'index/index-session.json': 'Current/last semantic index session progress.',
     'logs/': 'Debug logs from Project Manager and Cursor CLI.',
     'logs/flutter_debug.log': 'Combined debug log stream.',
     'logs/build-history-': 'Build history / GitLab CI loading logs (dated).',
@@ -59,25 +70,166 @@ class AgentProfileService {
 
   Future<AgentMemoryStore> loadMemory(String projectRoot) async {
     _ensureAiDir(projectRoot);
-    final file = File(AgentProfilePaths.memoryPath(projectRoot));
-    if (!file.existsSync()) {
-      return const AgentMemoryStore();
+    final byId = <String, AgentMemoryEntry>{};
+
+    void put(AgentMemoryEntry entry) {
+      byId.putIfAbsent(entry.id, () => entry);
     }
 
+    for (final entry in (await _loadNativeMemory(projectRoot)).entries) {
+      put(entry);
+    }
+
+    // Project diary (memories.json) — preferences / rules / history.
+    final diaryFile = File(AgentProfilePaths.memoriesDiaryPath(projectRoot));
+    if (diaryFile.existsSync()) {
+      try {
+        final raw = jsonDecode(await diaryFile.readAsString());
+        if (raw is List) {
+          for (final item in raw.whereType<Map<String, dynamic>>()) {
+            put(_entryFromDiary(item));
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Session folders: .ai/YYYY-MM-DD*/context.json summaries.
+    for (final entry in await _loadSessionContextEntries(projectRoot)) {
+      put(entry);
+    }
+
+    final entries = byId.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return AgentMemoryStore(entries: entries);
+  }
+
+  Future<AgentMemoryStore> _loadNativeMemory(String projectRoot) async {
+    final memoryFile = File(AgentProfilePaths.memoryPath(projectRoot));
+    if (!memoryFile.existsSync()) return const AgentMemoryStore();
     try {
       final json =
-          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+          jsonDecode(await memoryFile.readAsString()) as Map<String, dynamic>;
       return AgentMemoryStore.fromJson(json);
     } catch (_) {
       return const AgentMemoryStore();
     }
   }
 
+  static bool isEditableMemoryId(String id) =>
+      !id.startsWith('diary:') && !id.startsWith('session:');
+
+  AgentMemoryEntry _entryFromDiary(Map<String, dynamic> json) {
+    final id = (json['id'] as String?)?.trim().isNotEmpty == true
+        ? json['id'] as String
+        : _uuid.v4();
+    final summary = (json['summary'] as String?)?.trim() ?? '';
+    final notes = (json['notes'] as String?)?.trim() ?? '';
+    final source = (json['source'] as String?)?.trim();
+    final dateRaw = json['date'] as String?;
+    final createdAt = DateTime.tryParse(dateRaw ?? '') ??
+        DateTime.tryParse('${dateRaw}T00:00:00') ??
+        DateTime.now();
+    final rules = (json['applied_rules'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [];
+    final content = [
+      if (summary.isNotEmpty) summary,
+      if (notes.isNotEmpty) notes,
+    ].join('\n');
+    return AgentMemoryEntry(
+      id: 'diary:$id',
+      content: content.isEmpty ? id : content,
+      createdAt: createdAt,
+      tags: [
+        'memories.json',
+        if (source != null && source.isNotEmpty) 'source:$source',
+        ...rules,
+      ],
+    );
+  }
+
+  Future<List<AgentMemoryEntry>> _loadSessionContextEntries(
+    String projectRoot,
+  ) async {
+    final aiDir = Directory(AgentProfilePaths.aiDir(projectRoot));
+    if (!aiDir.existsSync()) return const [];
+
+    final results = <AgentMemoryEntry>[];
+
+    for (final entity in aiDir.listSync(followLinks: false)) {
+      if (entity is! Directory) continue;
+      final name = p.basename(entity.path);
+      final looksLikeDateSession = name.length >= 10 &&
+          int.tryParse(name.substring(0, 4)) != null &&
+          name[4] == '-' &&
+          int.tryParse(name.substring(5, 7)) != null &&
+          name[7] == '-' &&
+          int.tryParse(name.substring(8, 10)) != null;
+      if (!looksLikeDateSession && !name.startsWith('temp-')) {
+        continue;
+      }
+
+      final contextFile = File(p.join(entity.path, 'context.json'));
+      final resultFile = File(p.join(entity.path, 'result.md'));
+      String? summary;
+      DateTime? createdAt;
+
+      if (contextFile.existsSync()) {
+        try {
+          final json =
+              jsonDecode(await contextFile.readAsString()) as Map<String, dynamic>;
+          summary = (json['summary'] as String?)?.trim();
+          summary ??= (json['title'] as String?)?.trim();
+          createdAt = DateTime.tryParse(json['updated_at'] as String? ?? '') ??
+              DateTime.tryParse(json['created_at'] as String? ?? '');
+        } catch (_) {}
+      }
+
+      if ((summary == null || summary.isEmpty) && resultFile.existsSync()) {
+        try {
+          final text = await resultFile.readAsString();
+          final firstLine = text
+              .split('\n')
+              .map((l) => l.trim())
+              .firstWhere(
+                (l) => l.isNotEmpty && !l.startsWith('#'),
+                orElse: () => '',
+              );
+          if (firstLine.isNotEmpty) summary = firstLine;
+        } catch (_) {}
+      }
+
+      if (summary == null || summary.isEmpty) {
+        summary = 'Session folder: $name';
+      }
+
+      results.add(
+        AgentMemoryEntry(
+          id: 'session:$name',
+          content: '[$name] $summary',
+          createdAt: createdAt ??
+              DateTime.tryParse(
+                name.length >= 10 ? name.substring(0, 10) : name,
+              ) ??
+              DateTime.now(),
+          tags: const ['session', 'context.json'],
+        ),
+      );
+    }
+
+    return results;
+  }
+
   Future<void> saveMemory(String projectRoot, AgentMemoryStore store) async {
     _ensureAiDir(projectRoot);
     final file = File(AgentProfilePaths.memoryPath(projectRoot));
     final encoder = const JsonEncoder.withIndent('  ');
-    await file.writeAsString(encoder.convert(store.toJson()));
+    // Persist only editable (native) entries — never overwrite diary/sessions.
+    final native = AgentMemoryStore(
+      entries: store.entries.where((e) => isEditableMemoryId(e.id)).toList(),
+    );
+    await file.writeAsString(encoder.convert(native.toJson()));
   }
 
   Future<AgentMemoryEntry> addMemoryEntry(
@@ -85,7 +237,7 @@ class AgentProfileService {
     required String content,
     List<String> tags = const [],
   }) async {
-    final store = await loadMemory(projectRoot);
+    final store = await _loadNativeMemory(projectRoot);
     final entry = AgentMemoryEntry(
       id: _uuid.v4(),
       content: content.trim(),
@@ -100,7 +252,8 @@ class AgentProfileService {
   }
 
   Future<void> deleteMemoryEntry(String projectRoot, String entryId) async {
-    final store = await loadMemory(projectRoot);
+    if (!isEditableMemoryId(entryId)) return;
+    final store = await _loadNativeMemory(projectRoot);
     await saveMemory(
       projectRoot,
       AgentMemoryStore(

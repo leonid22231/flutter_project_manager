@@ -48,6 +48,15 @@ class ProjectManagerApp extends StatelessWidget {
               GlobalWidgetsLocalizations.delegate,
               GlobalCupertinoLocalizations.delegate,
             ],
+            builder: (context, child) {
+              final media = MediaQuery.of(context);
+              return MediaQuery(
+                data: media.copyWith(
+                  textScaler: TextScaler.linear(settings.uiScale),
+                ),
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
             home: const IdeShell(),
           );
         },

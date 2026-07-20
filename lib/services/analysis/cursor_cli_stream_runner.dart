@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:project_manager/models/agent_progress_step.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
+import 'package:project_manager/services/analysis/cursor_cli_prompt_delivery.dart';
 import 'package:project_manager/services/analysis/cursor_cli_stream_parser.dart';
 import 'package:project_manager/services/cursor_cli_logger.dart';
 
@@ -64,6 +65,7 @@ class CursorCliStreamRunner {
     CursorCliStreamProgressCallback? onProgress,
     Duration maxDuration = const Duration(minutes: 15),
     Duration idleTimeout = const Duration(minutes: 5),
+    CursorCliMode? mode,
   }) async {
     _cancelRequested = false;
     await _killProcess(reason: 'restart');
@@ -73,20 +75,27 @@ class CursorCliStreamRunner {
       env['CURSOR_API_KEY'] = settings.apiKey.trim();
     }
 
-    final args = <String>[
+    final resolvedMode = mode ?? CursorCliMode.ask;
+
+    final argsWithoutPrompt = <String>[
       '-p',
       '--output-format',
       'stream-json',
       '--stream-partial-output',
-      '--mode',
-      'ask',
+      ...resolvedMode.cliModeArgs,
+      if (resolvedMode == CursorCliMode.agent) '--force',
       '--trust',
       '--workspace',
       projectRoot,
       '--model',
       settings.defaultModel,
-      prompt,
     ];
+
+    final prepared = await CursorCliPromptDelivery.prepare(
+      projectRoot: projectRoot,
+      argsWithoutPrompt: argsWithoutPrompt,
+      prompt: prompt,
+    );
 
     _log.info(
       'Starting Cursor CLI stream.',
@@ -95,6 +104,7 @@ class CursorCliStreamRunner {
       data: {
         'model': settings.defaultModel,
         'promptChars': prompt.length,
+        'promptViaFile': prepared.promptFile != null,
         'maxDurationSec': maxDuration.inSeconds,
         'idleTimeoutSec': idleTimeout.inSeconds,
       },
@@ -103,13 +113,13 @@ class CursorCliStreamRunner {
     final process = Platform.isWindows
         ? await Process.start(
             settings.cliCommand.trim(),
-            args,
+            prepared.args,
             environment: env,
             runInShell: true,
           )
         : await Process.start(
             settings.cliCommand.trim(),
-            args,
+            prepared.args,
             environment: env,
           );
     _process = process;
@@ -135,6 +145,7 @@ class CursorCliStreamRunner {
     void complete(CursorCliStreamRunResult result) {
       if (completer.isCompleted) return;
       _clearWatchdogs();
+      unawaited(prepared.cleanup());
       completer.complete(result);
     }
 

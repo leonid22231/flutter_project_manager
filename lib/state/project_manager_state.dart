@@ -1,8 +1,14 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:project_manager/core/utils/context_id_utils.dart';
 import 'package:project_manager/core/utils/file_type_utils.dart';
+import 'package:project_manager/core/utils/project_context_paths.dart';
 import 'package:project_manager/core/utils/syntax_language.dart';
 import 'package:project_manager/models/change_record.dart';
+import 'package:project_manager/models/context_sync_status.dart';
 import 'package:project_manager/models/file_preview_focus.dart';
 import 'package:project_manager/models/git_commit_entry.dart';
 import 'package:project_manager/models/git_commit_graph_entry.dart';
@@ -14,6 +20,7 @@ import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/models/project_file_node.dart';
 import 'package:project_manager/models/project_status.dart';
 import 'package:project_manager/models/validation_result.dart';
+import 'package:project_manager/services/context_sync_service.dart';
 import 'package:project_manager/services/dependency_resolver_service.dart';
 import 'package:project_manager/services/documentation_service.dart';
 import 'package:project_manager/services/file_documentation_service.dart';
@@ -57,6 +64,7 @@ class ProjectManagerState extends ChangeNotifier {
     WidgetAnalysisCoordinator? widgetAnalysisCoordinator,
     GitService? gitService,
     SettingsService? settingsService,
+    ContextSyncService? contextSyncService,
   })  : _storage = storage ?? ProjectStorageService(),
         _validator = validator ?? ProjectValidatorService(),
         _documentation = documentation ?? DocumentationService(),
@@ -68,7 +76,8 @@ class ProjectManagerState extends ChangeNotifier {
         _widgetAnalysisCoordinator =
             widgetAnalysisCoordinator ?? WidgetAnalysisCoordinator(),
         _gitService = gitService ?? GitService(),
-        _settingsService = settingsService ?? SettingsService();
+        _settingsService = settingsService ?? SettingsService(),
+        _contextSyncService = contextSyncService ?? ContextSyncService();
 
   final ProjectStorageService _storage;
   final ProjectValidatorService _validator;
@@ -80,6 +89,7 @@ class ProjectManagerState extends ChangeNotifier {
   final WidgetAnalysisCoordinator _widgetAnalysisCoordinator;
   final GitService _gitService;
   final SettingsService _settingsService;
+  final ContextSyncService _contextSyncService;
   static const _uuid = Uuid();
 
   List<Project> _projects = [];
@@ -105,6 +115,11 @@ class ProjectManagerState extends ChangeNotifier {
   String? _lastError;
   Map<String, GlobalPackageMetadata> _globalPackageMetadata = {};
   GitRepositoryStatus? _gitRepositoryStatus;
+  ContextSyncStatus _contextSyncStatus = ContextSyncStatus.idle;
+  StreamSubscription<FileSystemEvent>? _aiWatchSub;
+  Timer? _contextSyncDebounce;
+  Timer? _contextSyncInterval;
+  var _suppressAiWatch = false;
 
   List<Project> get projects => List.unmodifiable(_projects);
   Project? get selectedProject => _selectedProject;
@@ -130,6 +145,7 @@ class ProjectManagerState extends ChangeNotifier {
   bool get isAddingProject => _isAddingProject;
   String? get lastError => _lastError;
   GitRepositoryStatus? get gitRepositoryStatus => _gitRepositoryStatus;
+  ContextSyncStatus get contextSyncStatus => _contextSyncStatus;
   Map<String, GlobalPackageMetadata> get globalPackageMetadata =>
       Map.unmodifiable(_globalPackageMetadata);
 
@@ -149,6 +165,7 @@ class ProjectManagerState extends ChangeNotifier {
         await _resolveDependenciesForSelectedProject();
         await _scanWidgetsForSelectedProject();
         await _refreshGitStatusForSelectedProject();
+        _startContextSyncForSelectedProject();
       }
     } finally {
       _isLoading = false;
@@ -167,10 +184,13 @@ class ProjectManagerState extends ChangeNotifier {
       _resolveDependenciesForSelectedProject();
       _scanWidgetsForSelectedProject();
       _refreshGitStatusForSelectedProject();
+      _startContextSyncForSelectedProject();
     } else {
       _fileTree = [];
       _expandedDirectoryPaths = {};
       _gitRepositoryStatus = null;
+      _stopContextSyncWatchers();
+      _contextSyncStatus = ContextSyncStatus.idle;
     }
   }
 
@@ -371,8 +391,19 @@ class ProjectManagerState extends ChangeNotifier {
           ? name!.trim()
           : validation.projectName ?? path.split(RegExp(r'[/\\]')).last;
 
+      final gitlabSettings = await _settingsService.loadGitLabSettings();
+      final gitStatus = await _gitService.getRepositoryStatus(
+        path.trim(),
+        configuredGitLabBaseUrl: gitlabSettings.normalizedBaseUrl,
+      );
+      final contextId = ContextIdUtils.resolveForNewProject(
+        remoteUrl: gitStatus.remoteUrl,
+        configuredGitLabBaseUrl: gitlabSettings.normalizedBaseUrl,
+      );
+
       var project = Project(
         id: projectId,
+        contextId: contextId,
         name: resolvedName,
         path: path.trim(),
         description: description.trim(),
@@ -407,6 +438,7 @@ class ProjectManagerState extends ChangeNotifier {
       await _loadProjectFiles(project.path);
       await _resolveDependenciesForSelectedProject();
       await _scanWidgetsForSelectedProject();
+      _startContextSyncForSelectedProject();
       return project;
     } catch (e) {
       _lastError = 'Failed to add project: $e';
@@ -681,5 +713,119 @@ class ProjectManagerState extends ChangeNotifier {
     if (_selectedProject?.id == updated.id) {
       _selectedProject = updated;
     }
+  }
+
+  Future<void> syncContextNow() => _runContextSync();
+
+  void reloadContextSyncSchedule() {
+    if (_selectedProject == null) return;
+    unawaited(_restartContextSyncInterval());
+    unawaited(_runContextSync());
+  }
+
+  Future<bool> updateProjectContextId(String rawId) async {
+    final project = _selectedProject;
+    if (project == null) return false;
+    final normalized = ContextIdUtils.normalize(rawId);
+    if (normalized == null) {
+      _lastError = 'Invalid context ID';
+      notifyListeners();
+      return false;
+    }
+    final updated = project.copyWith(contextId: normalized);
+    await updateProject(updated);
+    _startContextSyncForSelectedProject();
+    return true;
+  }
+
+  Future<void> regenerateProjectContextId() async {
+    await updateProjectContextId(ContextIdUtils.generateUuid());
+  }
+
+  void _startContextSyncForSelectedProject() {
+    _stopContextSyncWatchers();
+    final project = _selectedProject;
+    if (project == null) return;
+
+    unawaited(_runContextSync());
+    _watchAiDirectory(project.path);
+    unawaited(_restartContextSyncInterval());
+  }
+
+  Future<void> _restartContextSyncInterval() async {
+    _contextSyncInterval?.cancel();
+    final settings = await _settingsService.loadContextSyncSettings();
+    if (!settings.isActive) return;
+    _contextSyncInterval = Timer.periodic(settings.syncInterval, (_) {
+      unawaited(_runContextSync());
+    });
+  }
+
+  void _watchAiDirectory(String projectPath) {
+    final aiDir = Directory(ProjectContextPaths.contextDir(projectPath));
+    if (!aiDir.existsSync()) {
+      aiDir.createSync(recursive: true);
+    }
+    try {
+      _aiWatchSub = aiDir.watch(recursive: true).listen((_) {
+        if (_suppressAiWatch) return;
+        _contextSyncDebounce?.cancel();
+        _contextSyncDebounce = Timer(const Duration(seconds: 3), () {
+          unawaited(_runContextSync());
+        });
+      });
+    } catch (_) {
+      // Watching may be unsupported on some platforms/filesystems.
+    }
+  }
+
+  void _stopContextSyncWatchers() {
+    _aiWatchSub?.cancel();
+    _aiWatchSub = null;
+    _contextSyncDebounce?.cancel();
+    _contextSyncDebounce = null;
+    _contextSyncInterval?.cancel();
+    _contextSyncInterval = null;
+  }
+
+  Future<void> _runContextSync() async {
+    final project = _selectedProject;
+    if (project == null) return;
+
+    final syncSettings = await _settingsService.loadContextSyncSettings();
+    if (!syncSettings.isActive) {
+      _contextSyncStatus = const ContextSyncStatus(
+        phase: ContextSyncPhase.idle,
+        message: 'Context sync is disabled',
+      );
+      notifyListeners();
+      return;
+    }
+
+    final cursorSettings = await _settingsService.loadCursorCliSettings();
+    _suppressAiWatch = true;
+    try {
+      final status = await _contextSyncService.syncProject(
+        project: project,
+        syncSettings: syncSettings,
+        cursorSettings: cursorSettings,
+        onStatus: (s) {
+          _contextSyncStatus = s;
+          notifyListeners();
+        },
+      );
+      _contextSyncStatus = status;
+      notifyListeners();
+    } finally {
+      // Allow FS events from our own writes to settle.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      _suppressAiWatch = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopContextSyncWatchers();
+    super.dispose();
   }
 }

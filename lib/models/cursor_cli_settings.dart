@@ -1,9 +1,17 @@
 enum CursorCliMode {
+  /// Full agent with write/shell tools. CLI default when `--mode` is omitted.
   agent,
   plan,
   ask;
 
   String get cliValue => name;
+
+  /// Cursor CLI `--mode` only accepts `plan` | `ask`. Agent = omit the flag.
+  List<String> get cliModeArgs => switch (this) {
+        CursorCliMode.ask => const ['--mode', 'ask'],
+        CursorCliMode.plan => const ['--mode', 'plan'],
+        CursorCliMode.agent => const [],
+      };
 
   static CursorCliMode fromString(String? value) {
     return CursorCliMode.values.firstWhere(

@@ -7,6 +7,7 @@ import 'package:project_manager/models/widget_entry.dart';
 class Project {
   const Project({
     required this.id,
+    required this.contextId,
     required this.name,
     required this.path,
     this.description = '',
@@ -28,7 +29,12 @@ class Project {
     this.sdkAvailable = true,
   });
 
+  /// Internal app-storage key (immutable for `projects/<id>/`).
   final String id;
+
+  /// Sync folder name under the shared GitHub context repo (editable).
+  final String contextId;
+
   final String name;
   final String path;
   final String description;
@@ -51,6 +57,7 @@ class Project {
 
   Project copyWith({
     String? id,
+    String? contextId,
     String? name,
     String? path,
     String? description,
@@ -73,6 +80,7 @@ class Project {
   }) {
     return Project(
       id: id ?? this.id,
+      contextId: contextId ?? this.contextId,
       name: name ?? this.name,
       path: path ?? this.path,
       description: description ?? this.description,
@@ -97,6 +105,7 @@ class Project {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'contextId': contextId,
         'name': name,
         'path': path,
         'description': description,
@@ -120,8 +129,12 @@ class Project {
       };
 
   factory Project.fromJson(Map<String, dynamic> json) {
+    final id = json['id'] as String;
     return Project(
-      id: json['id'] as String,
+      id: id,
+      contextId: (json['contextId'] as String?)?.trim().isNotEmpty == true
+          ? json['contextId'] as String
+          : id,
       name: json['name'] as String,
       path: json['path'] as String,
       description: json['description'] as String? ?? '',
