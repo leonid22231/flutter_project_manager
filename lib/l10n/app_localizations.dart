@@ -916,7 +916,7 @@ class AppLocalizations {
       );
   String agentSelfAnalysisElapsed(int minutes, int seconds) => _s(
         'Running: ${minutes}m ${seconds.toString().padLeft(2, '0')}s',
-        'Выполняется: ${minutes}м ${seconds.toString().padLeft(2, '0')}с',
+        'Выполняется: $minutesм ${seconds.toString().padLeft(2, '0')}с',
       );
   String get agentAnalyzingSelf =>
       _s('Running self-analysis…', 'Выполняется самоанализ…');

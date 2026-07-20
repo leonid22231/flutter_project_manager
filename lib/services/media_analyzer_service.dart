@@ -149,7 +149,7 @@ String? resolveAssetPathExpression(
     if (match == null) continue;
     final prefix = prefixes[match.group(1)!];
     if (prefix == null) continue;
-    return normalizeMediaPath('${prefix}/${match.group(2)!}');
+    return normalizeMediaPath('$prefix/${match.group(2)!}');
   }
 
   if (RegExp(

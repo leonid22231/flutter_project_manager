@@ -82,9 +82,14 @@ class _AgentViewState extends State<AgentView> {
   SemanticIndexSnapshot _semantic = const SemanticIndexSnapshot();
   List<AgentProgressStep> _indexAgentSteps = const [];
   String _indexPartialOutput = '';
+  DateTime? _lastStreamUiAt;
+  Timer? _streamUiTimer;
+  String? _pendingLiveAnswer;
+  List<ProjectQaReasoningStep>? _pendingLiveSteps;
 
   @override
   void dispose() {
+    _streamUiTimer?.cancel();
     _questionController.dispose();
     _scrollController.dispose();
     _orchestrator.cancelSelfAnalysis();
@@ -255,6 +260,8 @@ class _AgentViewState extends State<AgentView> {
     }
 
     setState(() => _isIndexing = true);
+    final pm = context.read<ProjectManagerState>();
+    pm.beginSemanticIndexPause();
     AppLogService.instance.showOverlay();
     AppLogService.instance.info(
       'Starting semantic index…',
@@ -277,17 +284,33 @@ class _AgentViewState extends State<AgentView> {
         });
       }
 
+      var lastUiAt = DateTime.fromMillisecondsSinceEpoch(0);
       final session = await _semanticIndex.startInventory(
         projectRoot: project.path,
         settings: settings,
         languageCode: l10n.locale.languageCode,
-        onProgress: (s, {agentSteps = const [], partialOutput = ''}) {
+        onProgress: (s, {
+          agentSteps = const [],
+          partialOutput = '',
+          notes,
+          questions,
+          answers,
+        }) {
           if (!mounted) return;
+          final hasStoreUpdate =
+              notes != null || questions != null || answers != null;
+          final now = DateTime.now();
+          if (!hasStoreUpdate &&
+              agentSteps.isNotEmpty &&
+              now.difference(lastUiAt) < const Duration(milliseconds: 200)) {
+            return;
+          }
+          lastUiAt = now;
           setState(() {
             _semantic = SemanticIndexSnapshot(
-              notes: _semantic.notes,
-              questions: _semantic.questions,
-              answers: _semantic.answers,
+              notes: notes ?? _semantic.notes,
+              questions: questions ?? _semantic.questions,
+              answers: answers ?? _semantic.answers,
               session: s,
             );
             _indexAgentSteps = agentSteps;
@@ -327,6 +350,7 @@ class _AgentViewState extends State<AgentView> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
+      pm.endSemanticIndexPause();
       if (mounted) setState(() => _isIndexing = false);
     }
   }
@@ -418,23 +442,41 @@ class _AgentViewState extends State<AgentView> {
     }
 
     setState(() => _isIndexing = true);
+    final pm = context.read<ProjectManagerState>();
+    pm.beginSemanticIndexPause();
     AppLogService.instance.showOverlay();
     AppLogService.instance.info(
       'Continuing semantic index with answers…',
       source: 'semantic-index',
     );
     try {
+      var lastUiAt = DateTime.fromMillisecondsSinceEpoch(0);
       final session = await _semanticIndex.deepenWithAnswers(
         projectRoot: project.path,
         settings: settings,
         languageCode: l10n.locale.languageCode,
-        onProgress: (s, {agentSteps = const [], partialOutput = ''}) {
+        onProgress: (s, {
+          agentSteps = const [],
+          partialOutput = '',
+          notes,
+          questions,
+          answers,
+        }) {
           if (!mounted) return;
+          final hasStoreUpdate =
+              notes != null || questions != null || answers != null;
+          final now = DateTime.now();
+          if (!hasStoreUpdate &&
+              agentSteps.isNotEmpty &&
+              now.difference(lastUiAt) < const Duration(milliseconds: 200)) {
+            return;
+          }
+          lastUiAt = now;
           setState(() {
             _semantic = SemanticIndexSnapshot(
-              notes: _semantic.notes,
-              questions: _semantic.questions,
-              answers: _semantic.answers,
+              notes: notes ?? _semantic.notes,
+              questions: questions ?? _semantic.questions,
+              answers: answers ?? _semantic.answers,
               session: s,
             );
             _indexAgentSteps = agentSteps;
@@ -459,6 +501,7 @@ class _AgentViewState extends State<AgentView> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     } finally {
+      pm.endSemanticIndexPause();
       if (mounted) setState(() => _isIndexing = false);
     }
   }
@@ -526,6 +569,26 @@ class _AgentViewState extends State<AgentView> {
       attachments: List.of(_attachments),
       onStreamUpdate: (update) {
         if (!mounted) return;
+        final now = DateTime.now();
+        final force = update.isComplete || update.error != null;
+        if (!force &&
+            _lastStreamUiAt != null &&
+            now.difference(_lastStreamUiAt!) < const Duration(milliseconds: 120)) {
+          _pendingLiveAnswer = update.partialAnswer;
+          _pendingLiveSteps = update.reasoningSteps;
+          _streamUiTimer?.cancel();
+          _streamUiTimer = Timer(const Duration(milliseconds: 120), () {
+            if (!mounted) return;
+            setState(() {
+              _liveAnswer = _pendingLiveAnswer ?? _liveAnswer;
+              _liveReasoningSteps = _pendingLiveSteps ?? _liveReasoningSteps;
+            });
+            _scrollToBottom();
+          });
+          return;
+        }
+        _lastStreamUiAt = now;
+        _streamUiTimer?.cancel();
         setState(() {
           _liveAnswer = update.partialAnswer;
           _liveReasoningSteps = update.reasoningSteps;
@@ -693,6 +756,8 @@ class _AgentViewState extends State<AgentView> {
                   isAsking: _isAsking,
                   onSubmit: () => _ask(),
                   onAttach: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final missingMsg = l10n.agentAttachMissing;
                     final path = await showDialog<String>(
                       context: context,
                       builder: (ctx) {
@@ -722,12 +787,12 @@ class _AgentViewState extends State<AgentView> {
                     if (path == null || path.isEmpty) return;
                     if (!File(path).existsSync() &&
                         !Directory(path).existsSync()) {
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(l10n.agentAttachMissing)),
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(missingMsg)),
                       );
                       return;
                     }
+                    if (!mounted) return;
                     setState(() => _attachments.add(path));
                   },
                 ),

@@ -49,9 +49,8 @@ class ProjectManagerApp extends StatelessWidget {
               GlobalCupertinoLocalizations.delegate,
             ],
             builder: (context, child) {
-              final media = MediaQuery.of(context);
               return MediaQuery(
-                data: media.copyWith(
+                data: MediaQuery.of(context).copyWith(
                   textScaler: TextScaler.linear(settings.uiScale),
                 ),
                 child: child ?? const SizedBox.shrink(),

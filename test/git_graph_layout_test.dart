@@ -6,8 +6,8 @@ import 'package:project_manager/services/git_service.dart';
 void main() {
   test('parseGitLogGraphOutput parses parents and decorations', () {
     final output =
-        'abc${commitFieldSep}def123${commitFieldSep}abc${commitFieldSep}Alice${commitFieldSep}alice@example.com${commitFieldSep}2024-01-15T10:30:00Z${commitFieldSep} (main)${commitFieldSep}Initial commit${commitRecordSep}'
-        'def${commitFieldSep}${commitFieldSep}def${commitFieldSep}Bob${commitFieldSep}bob@example.com${commitFieldSep}2024-01-14T09:00:00Z${commitFieldSep}${commitFieldSep}Root commit$commitRecordSep';
+        'abc${commitFieldSep}def123${commitFieldSep}abc${commitFieldSep}Alice${commitFieldSep}alice@example.com${commitFieldSep}2024-01-15T10:30:00Z$commitFieldSep (main)${commitFieldSep}Initial commit$commitRecordSep'
+        'def$commitFieldSep${commitFieldSep}def${commitFieldSep}Bob${commitFieldSep}bob@example.com${commitFieldSep}2024-01-14T09:00:00Z$commitFieldSep${commitFieldSep}Root commit$commitRecordSep';
 
     final entries = parseGitLogGraphOutput(output);
 

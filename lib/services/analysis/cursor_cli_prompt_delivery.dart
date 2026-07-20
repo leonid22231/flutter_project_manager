@@ -42,13 +42,13 @@ class CursorCliPromptDelivery {
     );
     await writeUtf8File(file, prompt, flush: true);
 
-    final pointer = [
-      'Your full prompt is in this local file (read it completely and follow it):',
-      file.path,
-      '',
-      'Treat that file contents as the entire user/system prompt.',
-      'Do not ask for confirmation. Respond according to that file.',
-    ].join('\n');
+    // Single-line pointer: multiline + runInShell on Windows often drops the
+    // path after the colon, so the agent never opens the prompt file.
+    final pathForPrompt = file.path.replaceAll(r'\', '/');
+    final pointer =
+        'Read this local file completely and follow it as your entire prompt: '
+        '$pathForPrompt '
+        'Do not ask for confirmation. Respond according to that file.';
 
     return CursorCliPreparedPrompt(
       args: [...argsWithoutPrompt, pointer],

@@ -118,10 +118,14 @@ dynamic repairUtf8InJson(dynamic value) {
     return value.map(repairUtf8InJson).toList(growable: false);
   }
   if (value is Map) {
-    return value.map((key, v) {
-      final k = key is String ? repairUtf8Mojibake(key) : key;
-      return MapEntry(k, repairUtf8InJson(v));
+    // Keep Map<String, dynamic> — bare Map.map() widens to Map<dynamic,dynamic>
+    // and breaks `repaired is Map<String, dynamic>` checks in loaders.
+    final out = <String, dynamic>{};
+    value.forEach((key, v) {
+      final k = key is String ? repairUtf8Mojibake(key) : key.toString();
+      out[k] = repairUtf8InJson(v);
     });
+    return out;
   }
   return value;
 }

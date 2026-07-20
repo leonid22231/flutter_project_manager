@@ -19,6 +19,9 @@ typedef SemanticIndexProgressCallback = void Function(
   IndexSession session, {
   List<AgentProgressStep> agentSteps,
   String partialOutput,
+  IndexFileNotesStore? notes,
+  IndexQuestionsStore? questions,
+  IndexAnswersStore? answers,
 });
 
 class ProjectSemanticIndexService {
@@ -184,9 +187,16 @@ class ProjectSemanticIndexService {
           );
         }
 
-        final parsed = _parseNotesQuestions(result.answer);
+        final parsed = _parseNotesQuestionsFromRun(result, batch: i + 1);
         await _store.mergeNotes(projectRoot, parsed.notes);
         await _store.mergeQuestions(projectRoot, parsed.questions);
+        final snap = await _store.loadAll(projectRoot);
+        onProgress?.call(
+          session,
+          notes: snap.notes,
+          questions: snap.questions,
+          answers: snap.answers,
+        );
       } catch (e) {
         _log.error(
           'Inventory batch failed: $e',
@@ -332,7 +342,7 @@ class ProjectSemanticIndexService {
         );
       }
 
-      final parsed = _parseNotesQuestions(result.answer);
+      final parsed = _parseNotesQuestionsFromRun(result, batch: 0);
       await _store.mergeNotes(projectRoot, parsed.notes);
       await _store.mergeQuestions(projectRoot, parsed.questions);
 
@@ -347,7 +357,13 @@ class ProjectSemanticIndexService {
         clearError: true,
       );
       await _store.saveSession(projectRoot, session);
-      onProgress?.call(session);
+      final snap = await _store.loadAll(projectRoot);
+      onProgress?.call(
+        session,
+        notes: snap.notes,
+        questions: snap.questions,
+        answers: snap.answers,
+      );
       return session;
     } catch (e) {
       session = session.copyWith(
@@ -495,6 +511,63 @@ class ProjectSemanticIndexService {
   }
 
   ({List<IndexFileNote> notes, List<IndexQuestion> questions, bool? done})
+      _parseNotesQuestionsFromRun(
+    CursorCliStreamRunResult result, {
+    required int batch,
+  }) {
+    final fromAnswer = _parseNotesQuestions(result.answer);
+    if (fromAnswer.notes.isNotEmpty || fromAnswer.questions.isNotEmpty) {
+      AppLogService.instance.info(
+        'Batch parse: ${fromAnswer.notes.length} notes, '
+        '${fromAnswer.questions.length} questions (from answer)',
+        source: 'semantic-index',
+        data: {'batch': batch},
+      );
+      return fromAnswer;
+    }
+
+    // JSON often lands in assistant segments (logged as THINK) while
+    // result.answer is empty / prose-only.
+    for (final step in result.steps.reversed) {
+      final fromStep = _parseNotesQuestions(step.text);
+      if (fromStep.notes.isNotEmpty || fromStep.questions.isNotEmpty) {
+        AppLogService.instance.warn(
+          'Batch parse recovered from agent steps '
+          '(answer had no JSON): ${fromStep.notes.length} notes, '
+          '${fromStep.questions.length} questions',
+          source: 'semantic-index',
+          data: {'batch': batch},
+        );
+        return fromStep;
+      }
+    }
+
+    final combined = StringBuffer(result.answer);
+    for (final step in result.steps) {
+      combined.writeln(step.text);
+    }
+    final fromCombined = _parseNotesQuestions(combined.toString());
+    if (fromCombined.notes.isNotEmpty || fromCombined.questions.isNotEmpty) {
+      AppLogService.instance.warn(
+        'Batch parse recovered from combined output: '
+        '${fromCombined.notes.length} notes, '
+        '${fromCombined.questions.length} questions',
+        source: 'semantic-index',
+        data: {'batch': batch},
+      );
+      return fromCombined;
+    }
+
+    AppLogService.instance.warn(
+      'Batch parse empty — no notes/questions in answer or steps '
+      '(answerChars=${result.answer.length}, steps=${result.steps.length})',
+      source: 'semantic-index',
+      data: {'batch': batch},
+    );
+    return fromAnswer;
+  }
+
+  ({List<IndexFileNote> notes, List<IndexQuestion> questions, bool? done})
       _parseNotesQuestions(String raw) {
     final map = _extractJsonMap(raw);
     if (map == null) {
@@ -504,7 +577,7 @@ class ProjectSemanticIndexService {
     final now = DateTime.now();
     final notes = <IndexFileNote>[];
     for (final item in (map['notes'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()) {
+        .whereType<Map>()) {
       final path = (item['path'] as String?)?.trim() ?? '';
       if (path.isEmpty) continue;
       notes.add(
@@ -524,7 +597,7 @@ class ProjectSemanticIndexService {
 
     final questions = <IndexQuestion>[];
     for (final item in (map['questions'] as List<dynamic>? ?? const [])
-        .whereType<Map<String, dynamic>>()) {
+        .whereType<Map>()) {
       final question = (item['question'] as String?)?.trim() ?? '';
       if (question.isEmpty) continue;
       var id = (item['id'] as String?)?.trim() ?? '';
@@ -563,6 +636,24 @@ class ProjectSemanticIndexService {
         }
       }
     } catch (_) {}
+
+    // Prefer the object that actually contains notes/questions when the
+    // stream dumps multiple JSON blobs or prose around the payload.
+    final notesKey = text.indexOf('"notes"');
+    final qKey = text.indexOf('"questions"');
+    final keyAt = notesKey >= 0
+        ? (qKey >= 0 && qKey < notesKey ? qKey : notesKey)
+        : qKey;
+    if (keyAt >= 0) {
+      final start = text.lastIndexOf('{', keyAt);
+      final end = text.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        try {
+          final sliced = jsonDecode(text.substring(start, end + 1));
+          if (sliced is Map<String, dynamic>) return sliced;
+        } catch (_) {}
+      }
+    }
 
     final start = text.indexOf('{');
     final end = text.lastIndexOf('}');

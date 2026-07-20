@@ -126,6 +126,7 @@ class ProjectManagerState extends ChangeNotifier {
   /// Projects that already received one auto Cursor sync this session.
   final Set<String> _autoCursorSyncDone = {};
   var _syncRunGeneration = 0;
+  var _semanticIndexPauseDepth = 0;
 
   static const _autoSyncCooldown = Duration(minutes: 5);
   static const _projectSelectDebounce = Duration(seconds: 3);
@@ -157,6 +158,21 @@ class ProjectManagerState extends ChangeNotifier {
   String? get lastError => _lastError;
   GitRepositoryStatus? get gitRepositoryStatus => _gitRepositoryStatus;
   ContextSyncStatus get contextSyncStatus => _contextSyncStatus;
+
+  /// While semantic indexing runs, auto context-sync must not rewrite `.ai`.
+  bool get isSemanticIndexPaused => _semanticIndexPauseDepth > 0;
+
+  void beginSemanticIndexPause() {
+    _semanticIndexPauseDepth++;
+    // Abort any in-flight sync before it can replaceTree over index/*.
+    if (_semanticIndexPauseDepth == 1) {
+      _syncRunGeneration++;
+    }
+  }
+
+  void endSemanticIndexPause() {
+    if (_semanticIndexPauseDepth > 0) _semanticIndexPauseDepth--;
+  }
   Map<String, GlobalPackageMetadata> get globalPackageMetadata =>
       Map.unmodifiable(_globalPackageMetadata);
 
@@ -911,6 +927,19 @@ class ProjectManagerState extends ChangeNotifier {
           'syncing': _contextSyncService.isSyncing,
           'cursorBusy': CursorCliFlight.instance.isBusy,
           'activeCursorJob': CursorCliFlight.instance.activeJob,
+        },
+      );
+      return;
+    }
+
+    if (!force && _semanticIndexPauseDepth > 0) {
+      AppLogService.instance.info(
+        'Auto-sync skipped — semantic index in progress',
+        source: 'context-sync',
+        data: {
+          'reason': reason,
+          'projectId': project.id,
+          'pauseDepth': _semanticIndexPauseDepth,
         },
       );
       return;

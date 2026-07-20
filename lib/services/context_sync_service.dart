@@ -255,7 +255,7 @@ class ContextSyncService {
       status = status.copyWith(message: 'Writing local .ai…');
       onStatus?.call(status);
 
-      await _replaceTree(mergedDir, localAiDir);
+      await _replaceTree(mergedDir, localAiDir, preserveIgnored: true);
       await _replaceTree(mergedDir, remoteContextDir);
 
       if (!stillActive()) {
@@ -375,11 +375,33 @@ class ContextSyncService {
     }
   }
 
-  Future<void> _replaceTree(Directory source, Directory dest) async {
+  Future<void> _replaceTree(
+    Directory source,
+    Directory dest, {
+    bool preserveIgnored = false,
+  }) async {
+    final preserved = <String, List<int>>{};
+    if (preserveIgnored && dest.existsSync()) {
+      for (final entity in dest.listSync(recursive: true, followLinks: false)) {
+        if (entity is! File) continue;
+        final relative = p.relative(entity.path, from: dest.path);
+        if (!_shouldIgnoreRelativePath(relative)) continue;
+        try {
+          preserved[relative] = await entity.readAsBytes();
+        } catch (_) {}
+      }
+    }
+
     if (dest.existsSync()) {
       dest.deleteSync(recursive: true);
     }
     await _copyTree(source, dest);
+
+    for (final entry in preserved.entries) {
+      final out = File(p.join(dest.path, entry.key));
+      await out.parent.create(recursive: true);
+      await out.writeAsBytes(entry.value, flush: true);
+    }
   }
 
   /// Compares local `.ai` vs remote context folder. Ignores noisy log artifacts.
@@ -443,7 +465,8 @@ class ContextSyncService {
         normalized.contains('/chat-export-')) {
       return true;
     }
-    if (normalized == 'index/index-session.json') return true;
+    // Semantic index is local work-in-progress; never let sync wipe it.
+    if (normalized == 'index' || normalized.startsWith('index/')) return true;
     if (normalized == 'merge_notes.md') return true;
     if (normalized.contains('/conflicts/')) return true;
     if (normalized.endsWith('.bak')) return true;

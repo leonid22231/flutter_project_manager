@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 /// Unified in-app log bus for the whole Project Manager UI overlay.
@@ -8,10 +10,16 @@ class AppLogService extends ChangeNotifier {
 
   static const maxEntries = 800;
 
+  /// Coalesce UI rebuilds — flooding notifyListeners during semantic-index
+  /// THINK spam triggers mouse_tracker / MediaQuery descendant assertions.
+  static const _notifyThrottle = Duration(milliseconds: 120);
+
   final List<AppLogEntry> _entries = [];
   var _overlayVisible = false;
   String _filterSource = '';
   String _filterLevel = '';
+  Timer? _notifyTimer;
+  var _notifyPending = false;
 
   List<AppLogEntry> get entries => List.unmodifiable(_entries.reversed);
 
@@ -34,29 +42,29 @@ class AppLogService extends ChangeNotifier {
   void showOverlay() {
     if (_overlayVisible) return;
     _overlayVisible = true;
-    notifyListeners();
+    _notifyNow();
   }
 
   void hideOverlay() {
     if (!_overlayVisible) return;
     _overlayVisible = false;
-    notifyListeners();
+    _notifyNow();
   }
 
   void toggleOverlay() {
     _overlayVisible = !_overlayVisible;
-    notifyListeners();
+    _notifyNow();
   }
 
   void setFilter({String? source, String? level}) {
     if (source != null) _filterSource = source;
     if (level != null) _filterLevel = level;
-    notifyListeners();
+    _notifyNow();
   }
 
   void clear() {
     _entries.clear();
-    notifyListeners();
+    _notifyNow();
   }
 
   void info(
@@ -107,6 +115,20 @@ class AppLogService extends ChangeNotifier {
     if (kDebugMode) {
       debugPrint('[${entry.level}] ${entry.source} — ${entry.message}');
     }
+    _scheduleNotify();
+  }
+
+  void _scheduleNotify() {
+    if (_notifyPending) return;
+    _notifyPending = true;
+    _notifyTimer?.cancel();
+    _notifyTimer = Timer(_notifyThrottle, _notifyNow);
+  }
+
+  void _notifyNow() {
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _notifyPending = false;
     notifyListeners();
   }
 }

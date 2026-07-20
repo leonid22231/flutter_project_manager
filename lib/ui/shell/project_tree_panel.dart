@@ -93,7 +93,7 @@ class _PanelHeader extends StatelessWidget {
                 ),
           ),
           const Spacer(),
-          if (action != null) action!,
+          ?action,
         ],
       ),
     );

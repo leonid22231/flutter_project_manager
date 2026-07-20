@@ -132,6 +132,8 @@ class CursorCliStreamRunner {
     var timedOut = false;
     var idleTimedOut = false;
     var cancelled = false;
+    var gotResultEvent = false;
+    Timer? resultGraceTimer;
 
     final completer = Completer<CursorCliStreamRunResult>();
 
@@ -145,6 +147,7 @@ class CursorCliStreamRunner {
     void complete(CursorCliStreamRunResult result) {
       if (completer.isCompleted) return;
       _clearWatchdogs();
+      resultGraceTimer?.cancel();
       unawaited(prepared.cleanup());
       completer.complete(result);
     }
@@ -158,9 +161,15 @@ class CursorCliStreamRunner {
 
       final answer = finalAnswer.trim().isNotEmpty ? finalAnswer : partialAnswer;
       emitProgress();
+      // If we already got a successful result payload, don't fail the run
+      // just because we killed the process after the grace window.
+      final effectiveExit =
+          gotResultEvent && answer.trim().isNotEmpty && exitCode != 0
+              ? 0
+              : exitCode;
       complete(
         CursorCliStreamRunResult(
-          exitCode: exitCode,
+          exitCode: effectiveExit,
           stderr: stderrBuffer.toString(),
           answer: answer,
           steps: steps,
@@ -261,8 +270,19 @@ class CursorCliStreamRunner {
             }
             emitProgress();
           case CursorCliStreamEventKind.result:
+            gotResultEvent = true;
             finalAnswer = event.text ?? finalAnswer;
             emitProgress();
+            resultGraceTimer?.cancel();
+            resultGraceTimer = Timer(const Duration(seconds: 8), () async {
+              if (completer.isCompleted) return;
+              _log.info(
+                'Cursor CLI still running after result — stopping.',
+                source: logSource,
+                logRoot: projectRoot,
+              );
+              await _killProcess(reason: 'result-grace');
+            });
         }
       },
       onError: (Object error) {

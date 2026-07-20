@@ -196,7 +196,7 @@ class CursorCliProjectQaService {
       );
       final elapsed = DateTime.now().difference(started).inMilliseconds;
 
-      if (streamResult.exitCode != 0) {
+      if (streamResult.exitCode != 0 && streamResult.answer.trim().isEmpty) {
         final err = _truncate(streamResult.stderr);
         _log.error(
           'Project Q&A agent exited with non-zero code.',
@@ -209,6 +209,19 @@ class CursorCliProjectQaService {
           },
         );
         return ProjectQaResult(answer: '', error: err.isEmpty ? 'Agent failed.' : err);
+      }
+
+      if (streamResult.exitCode != 0) {
+        _log.warn(
+          'Project Q&A process non-zero exit but answer present — accepting.',
+          source: 'analysis',
+          logRoot: projectRoot,
+          data: {
+            'exitCode': streamResult.exitCode,
+            'elapsedMs': elapsed,
+            'answerChars': streamResult.answer.length,
+          },
+        );
       }
 
       _log.info(
@@ -314,6 +327,9 @@ class CursorCliProjectQaService {
     required String prompt,
     required CursorCliMode mode,
     ProjectQaStreamCallback? onStreamUpdate,
+    Duration maxDuration = const Duration(minutes: 15),
+    Duration idleTimeout = const Duration(minutes: 5),
+    Duration resultExitGrace = const Duration(seconds: 8),
   }) async {
     final env = Map<String, String>.from(Platform.environment);
     if (!settings.useEnvironmentApiKey && settings.apiKey.trim().isNotEmpty) {
@@ -351,41 +367,105 @@ class CursorCliProjectQaService {
       },
     );
 
-    try {
-      final process = Platform.isWindows
-          ? await Process.start(
-              settings.cliCommand.trim(),
-              prepared.args,
-              environment: env,
-              runInShell: true,
-            )
-          : await Process.start(
-              settings.cliCommand.trim(),
-              prepared.args,
-              environment: env,
-            );
+    final process = Platform.isWindows
+        ? await Process.start(
+            settings.cliCommand.trim(),
+            prepared.args,
+            environment: env,
+            runInShell: true,
+          )
+        : await Process.start(
+            settings.cliCommand.trim(),
+            prepared.args,
+            environment: env,
+          );
 
-      final reasoningSteps = <ProjectQaReasoningStep>[];
-      final pendingTools = <String, int>{};
-      var partialAnswer = '';
-      var finalAnswer = '';
-      final stderrBuffer = StringBuffer();
+    final reasoningSteps = <ProjectQaReasoningStep>[];
+    final pendingTools = <String, int>{};
+    var partialAnswer = '';
+    var finalAnswer = '';
+    final stderrBuffer = StringBuffer();
+    final completer = Completer<_AgentStreamResult>();
+    StreamSubscription<String>? stdoutSub;
+    StreamSubscription<String>? stderrSub;
+    Timer? idleTimer;
+    Timer? maxTimer;
+    Timer? resultGraceTimer;
+    var gotResultEvent = false;
 
-      void emitUpdate({bool isComplete = false, String? error}) {
-        onStreamUpdate?.call(
-          ProjectQaStreamUpdate(
-            partialAnswer: finalAnswer.isNotEmpty ? finalAnswer : partialAnswer,
-            reasoningSteps: List.unmodifiable(reasoningSteps),
-            isComplete: isComplete,
-            error: error,
-          ),
+    void emitUpdate({bool isComplete = false, String? error}) {
+      onStreamUpdate?.call(
+        ProjectQaStreamUpdate(
+          partialAnswer: finalAnswer.isNotEmpty ? finalAnswer : partialAnswer,
+          reasoningSteps: List.unmodifiable(reasoningSteps),
+          isComplete: isComplete,
+          error: error,
+        ),
+      );
+    }
+
+    Future<void> killProcess(String reason) async {
+      _log.warn(
+        'Stopping Q&A Cursor process ($reason).',
+        source: 'analysis',
+        logRoot: projectRoot,
+      );
+      try {
+        process.kill(ProcessSignal.sigterm);
+        await process.exitCode.timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            process.kill(ProcessSignal.sigkill);
+            return -1;
+          },
         );
+      } catch (_) {
+        try {
+          process.kill(ProcessSignal.sigkill);
+        } catch (_) {}
       }
+    }
 
-      final stdoutFuture = process.stdout
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
+    void complete(int exitCode, {bool timedOut = false, bool idle = false}) {
+      if (completer.isCompleted) return;
+      idleTimer?.cancel();
+      maxTimer?.cancel();
+      resultGraceTimer?.cancel();
+      final answer =
+          finalAnswer.trim().isNotEmpty ? finalAnswer : partialAnswer;
+      emitUpdate(isComplete: true);
+      completer.complete(
+        _AgentStreamResult(
+          exitCode: timedOut || idle ? (exitCode == 0 ? 1 : exitCode) : exitCode,
+          stderr: stderrBuffer.toString(),
+          answer: answer,
+          reasoningSteps: reasoningSteps,
+        ),
+      );
+    }
+
+    void armIdle() {
+      idleTimer?.cancel();
+      idleTimer = Timer(idleTimeout, () async {
+        if (completer.isCompleted) return;
+        await killProcess('idle-timeout');
+        complete(1, idle: true);
+      });
+    }
+
+    maxTimer = Timer(maxDuration, () async {
+      if (completer.isCompleted) return;
+      await killProcess('max-timeout');
+      complete(1, timedOut: true);
+    });
+    armIdle();
+
+    stdoutSub = process.stdout
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen(
+      (line) {
+        armIdle();
         final event = CursorCliStreamParser.parseLine(line);
         if (event == null) return;
 
@@ -444,34 +524,71 @@ class CursorCliProjectQaService {
             }
             emitUpdate();
           case CursorCliStreamEventKind.result:
+            gotResultEvent = true;
             finalAnswer = event.text ?? finalAnswer;
             if (event.isError) {
               emitUpdate(isComplete: true, error: finalAnswer);
             } else {
               emitUpdate(isComplete: true);
             }
+            // Cursor often keeps the process alive after the final result
+            // (agent mode). Don't leave the chat spinner waiting on exit.
+            resultGraceTimer?.cancel();
+            resultGraceTimer = Timer(resultExitGrace, () async {
+              if (completer.isCompleted) return;
+              await killProcess('result-grace');
+              complete(event.isError ? 1 : 0);
+            });
         }
-      });
+      },
+      onError: (Object error) {
+        stderrBuffer.writeln(error);
+      },
+      onDone: () {},
+      cancelOnError: false,
+    );
 
-      final stderrFuture =
-          process.stderr.transform(utf8.decoder).listen((chunk) {
+    stderrSub = process.stderr.transform(utf8.decoder).listen(
+      (chunk) {
+        armIdle();
         stderrBuffer.write(chunk);
-      });
+      },
+      onError: (Object error) {
+        stderrBuffer.writeln(error);
+      },
+      cancelOnError: false,
+    );
 
-      await stdoutFuture.asFuture<void>();
-      await stderrFuture.asFuture<void>();
-      final exitCode = await process.exitCode;
+    unawaited(process.exitCode.then((code) async {
+      await stdoutSub?.cancel();
+      await stderrSub?.cancel();
+      if (completer.isCompleted) return;
+      final hasAnswer =
+          finalAnswer.trim().isNotEmpty || partialAnswer.trim().isNotEmpty;
+      if (gotResultEvent && hasAnswer) {
+        // Process may exit non-zero after we killed it post-result.
+        complete(0);
+        return;
+      }
+      if (!gotResultEvent && !hasAnswer) {
+        _log.warn(
+          'Q&A process exited before result event.',
+          source: 'analysis',
+          logRoot: projectRoot,
+          data: {'exitCode': code},
+        );
+      }
+      complete(code);
+    }));
 
-      final answer = finalAnswer.trim().isNotEmpty ? finalAnswer : partialAnswer;
-      emitUpdate(isComplete: true);
-
-      return _AgentStreamResult(
-        exitCode: exitCode,
-        stderr: stderrBuffer.toString(),
-        answer: answer,
-        reasoningSteps: reasoningSteps,
-      );
+    try {
+      return await completer.future;
     } finally {
+      idleTimer?.cancel();
+      maxTimer.cancel();
+      resultGraceTimer?.cancel();
+      await stdoutSub.cancel();
+      await stderrSub.cancel();
       await prepared.cleanup();
     }
   }

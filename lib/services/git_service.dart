@@ -382,7 +382,7 @@ class GitService {
         '--date=iso-strict',
         '-n',
         '$limit',
-        '--pretty=format:%H${_commitFieldSep}%h${_commitFieldSep}%an${_commitFieldSep}%ae${_commitFieldSep}%ad${_commitFieldSep}%s$_commitRecordSep',
+        '--pretty=format:%H$_commitFieldSep%h$_commitFieldSep%an$_commitFieldSep%ae$_commitFieldSep%ad$_commitFieldSep%s$_commitRecordSep',
         '--',
         gitPath,
       ],
@@ -413,7 +413,7 @@ class GitService {
         '--date=iso-strict',
         '-n',
         '$limit',
-        '--pretty=format:%H${_commitFieldSep}%h${_commitFieldSep}%an${_commitFieldSep}%ae${_commitFieldSep}%ad${_commitFieldSep}%s$_commitRecordSep',
+        '--pretty=format:%H$_commitFieldSep%h$_commitFieldSep%an$_commitFieldSep%ae$_commitFieldSep%ad$_commitFieldSep%s$_commitRecordSep',
       ],
       workingDirectory: projectPath,
     );

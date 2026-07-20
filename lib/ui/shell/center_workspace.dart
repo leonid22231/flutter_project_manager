@@ -102,7 +102,7 @@ class _OpenFilesTabBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 4),
         itemCount: openPaths.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 2),
+        separatorBuilder: (_, _) => const SizedBox(width: 2),
         itemBuilder: (context, index) {
           final path = openPaths[index];
           final isActive = path == activePath;

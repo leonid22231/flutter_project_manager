@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/core/utils/git_graph_layout.dart';
 import 'package:project_manager/core/utils/gitlab_urls.dart';
@@ -132,7 +133,8 @@ class _GitCommitTreeViewState extends State<GitCommitTreeView> {
             padding: const EdgeInsets.all(12),
             itemCount: rows.length,
             itemExtent: gitGraphRowHeight,
-            cacheExtent: gitGraphRowHeight * 12,
+            scrollCacheExtent:
+                ScrollCacheExtent.pixels(gitGraphRowHeight * 12),
             itemBuilder: (context, index) {
               final row = rows[index];
               return RepaintBoundary(

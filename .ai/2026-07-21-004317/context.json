@@ -1,0 +1,9 @@
+{
+  "id": "2026-07-21-004317",
+  "title": "Fix semantic index loss + MediaQuery red screen",
+  "status": "done",
+  "created_at": "2026-07-21T00:43:17Z",
+  "updated_at": "2026-07-21T00:55:00Z",
+  "tags": ["semantic-index", "context-sync", "flutter-assert", "logs"],
+  "summary": "Fixed prompt path, parse from steps, pause/protect sync over index/, UI note counters, throttled log overlay rebuilds that caused mouse_tracker/MediaQuery assertions."
+}

@@ -193,7 +193,7 @@ class _GitHistoryDialogState extends State<GitHistoryDialog> {
                   return ListView.separated(
                     padding: const EdgeInsets.all(12),
                     itemCount: commits.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final commit = commits[index];
                       final commitUrl = buildGitLabCommitUrl(

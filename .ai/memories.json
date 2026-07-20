@@ -217,5 +217,37 @@
       "ai-storage-no-task-id"
     ],
     "notes": "core/utils/utf8_file_io.dart"
+  },
+  {
+    "id": "mem-20260721-semantic-index-wipe",
+    "date": "2026-07-21T00:45:00Z",
+    "source": "assistant",
+    "summary": "Большой semantic index (kiosk 51 batches) почти без notes: (1) multiline prompt path ломается runInShell, (2) parse только result.answer, (3) context-sync replaceTree трёт index/* во время индексации.",
+    "applied_rules": [
+      "ai-storage-no-task-id",
+      "use-flutter-debug-log-fs-mcp"
+    ],
+    "notes": "Диагностика: .ai/2026-07-21-004001/result.md"
+  },
+  {
+    "id": "mem-20260721-index-and-overlay-fix",
+    "date": "2026-07-21T00:55:00Z",
+    "source": "assistant",
+    "summary": "Починен semantic index (prompt path, parse steps, pause sync, preserve index/) и red screen от шторма THINK→setState в log overlay.",
+    "applied_rules": [
+      "ai-storage-no-task-id",
+      "use-flutter-debug-log-fs-mcp"
+    ],
+    "notes": ".ai/2026-07-21-004317/result.md"
+  },
+  {
+    "id": "mem-20260721-repair-utf8-map-type",
+    "date": "2026-07-21T00:52:00Z",
+    "source": "assistant",
+    "summary": "repairUtf8InJson делал Map<dynamic,dynamic> → load index всегда пустой fallback. Чинить через Map<String,dynamic> + from() в store.",
+    "applied_rules": [
+      "ai-storage-no-task-id"
+    ],
+    "notes": "utf8_file_io.dart + project_semantic_index_store.dart"
   }
 ]

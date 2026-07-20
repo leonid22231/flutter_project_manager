@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/core/utils/gitlab_urls.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/models/git_commit_graph_entry.dart';

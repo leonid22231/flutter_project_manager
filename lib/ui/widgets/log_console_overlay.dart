@@ -34,13 +34,17 @@ class _LogConsoleOverlayState extends State<LogConsoleOverlay> {
 
   void _onLogs() {
     if (!mounted) return;
-    setState(() {});
-    if (_follow && _scroll.hasClients) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scroll.hasClients) return;
-        _scroll.jumpTo(0); // reversed list — top is newest
-      });
-    }
+    // Defer rebuilds out of mouse-tracker / gesture frames.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {});
+      if (_follow && _scroll.hasClients) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_scroll.hasClients) return;
+          _scroll.jumpTo(0); // reversed list — top is newest
+        });
+      }
+    });
   }
 
   @override

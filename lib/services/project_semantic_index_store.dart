@@ -123,6 +123,9 @@ class ProjectSemanticIndexStore {
       final raw = jsonDecode(await readUtf8File(file));
       final repaired = repairUtf8InJson(raw);
       if (repaired is Map<String, dynamic>) return fromJson(repaired);
+      if (repaired is Map) {
+        return fromJson(Map<String, dynamic>.from(repaired));
+      }
     } catch (_) {}
     return fallback;
   }
