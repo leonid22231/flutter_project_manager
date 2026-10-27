@@ -6,7 +6,7 @@
   "updated_at": "2026-10-27T03:55:00Z",
   "tags": ["sync", "workstation", "design", "cursor"],
   "owner": "l.soldatov",
-  "summary": "Старое приложение на ветке legacy (0cf66e1). На main план: автосинхронизация, автозапуск, папка settings/ рядом с UUID проектов, затем сужение окна. Git-контракт проектных папок не менять.",
+  "summary": "Старое приложение на ветке legacy (0cf66e1). На main план: автосинхронизация, автозапуск, папка settings/ с полным mcp.json включая токены, затем сужение окна. Проектные UUID не менять.",
   "steps": [
     "Разобран project_manager и workstation pack",
     "Сверен клон context_sync_repo",
