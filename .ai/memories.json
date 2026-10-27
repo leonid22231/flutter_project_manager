@@ -259,5 +259,15 @@
       "ai-storage-no-task-id"
     ],
     "notes": ".vscode/tasks.json; .gitignore keeps tasks.json + ignores /dist/"
+  },
+  {
+    "id": "mem-20261027-workstation-sync-design",
+    "date": "2026-10-27T03:30:00Z",
+    "source": "assistant",
+    "summary": "Project Manager предлагается сузить до синхронизации рабочего места между двумя ПК: отфильтрованный .ai, skills/rules/memories, mcp как шаблон. Dart-анализ и встроенный агент — кандидаты на удаление. Сборки не сносить, пока не подтверждено.",
+    "applied_rules": [
+      "ai-storage-no-task-id"
+    ],
+    "notes": "Продолжать с PLAN.md на ветке main. legacy = 0cf66e1, туда не коммитить. Git context sync не перестраивать."
   }
 ]
