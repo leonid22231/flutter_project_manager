@@ -150,7 +150,12 @@ bool Win32Window::Create(const std::wstring& title,
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  return ShowWindow(
+      window_handle_, start_minimized_ ? SW_SHOWMINIMIZED : SW_SHOWNORMAL);
+}
+
+void Win32Window::SetStartMinimized(bool minimized) {
+  start_minimized_ = minimized;
 }
 
 // static

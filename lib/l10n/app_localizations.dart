@@ -60,6 +60,33 @@ class AppLocalizations {
         'Add a Flutter/Dart project to get started.',
         'Добавьте Flutter/Dart проект, чтобы начать.',
       );
+  String get projectFolderMissing =>
+      _s('Project folder was not found', 'Папка проекта не найдена');
+  String get projectFolderMissingHint => _s(
+        'The saved path is not the project. Choose the folder where the project is now.',
+        'Сохранённый путь не указывает на проект. Укажите папку, где проект лежит сейчас.',
+      );
+  String get chooseProjectFolder =>
+      _s('Choose another folder', 'Указать другую папку');
+  String get changeProjectFolder => _s('Change folder', 'Сменить папку');
+  String get latestTask => _s('Latest task', 'Последняя задача');
+  String get noLatestTask => _s('No task in .ai', 'В .ai нет задачи');
+  String get aiNow => _s('Current task', 'Сейчас');
+  String get aiRecentTasks => _s('Recent tasks', 'Недавние задачи');
+  String get aiOpenQuestions => _s('Open questions', 'Открытые вопросы');
+  String aiMoreCount(int count) => _s('$count more', 'ещё $count');
+  String get aiMemories => _s('Memories', 'Воспоминания');
+  String get aiAgentMemory => _s('Agent memory', 'Память агента');
+  String get aiTasks => _s('Tasks', 'Задачи');
+  String get aiFolderEmpty => _s('Nothing in .ai yet', 'В .ai пока пусто');
+  String get selfAnalysisNeedsCli => _s(
+        'Turn on Cursor CLI in settings to run self-analysis.',
+        'Чтобы запустить самоанализ, включите Cursor CLI в настройках.',
+      );
+  String get selfAnalysisEmpty => _s(
+        'No self-analysis report yet.',
+        'Отчёта самоанализа пока нет.',
+      );
   String get selectProjectForFiles => _s(
         'Select a project to browse its files.',
         'Выберите проект для просмотра файлов.',
@@ -1009,6 +1036,33 @@ class AppLocalizations {
 
   // Git / GitLab
   String get gitSectionTitle => _s('Repository changes', 'Изменения репозитория');
+  String get gitActivityTitle => _s('Activity', 'Активность');
+  String get gitActivityWindow =>
+      _s('Last 26 weeks', 'За последние 26 недель');
+  String get gitActivityAuthors => _s('Authors', 'Авторы');
+  String get gitActivityWeeks =>
+      _s('Commits by week', 'Коммиты по неделям');
+  String get gitActivityRecent => _s('Latest changes', 'Последние изменения');
+  String get gitActivityEmpty => _s(
+        'No commits in this period.',
+        'В этом периоде коммитов нет.',
+      );
+  String gitActivityCommits(int count) {
+    if (!_ru) {
+      return count == 1 ? '1 commit' : '$count commits';
+    }
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod10 == 1 && mod100 != 11) return '$count коммит';
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+      return '$count коммита';
+    }
+    return '$count коммитов';
+  }
+  String gitActivityLines(int added, int removed) =>
+      _s('+$added / −$removed', '+$added / −$removed');
+  String gitActivityMoreAuthors(int count) =>
+      _s('and $count more', 'и ещё $count');
   String get refreshGitStatus => _s('Refresh git status', 'Обновить статус git');
   String get loadingGitStatus =>
       _s('Checking repository...', 'Проверка репозитория...');
@@ -1121,6 +1175,18 @@ class AppLocalizations {
       );
   String get contextSyncEnabled =>
       _s('Enable context sync', 'Включить синхронизацию контекста');
+  String get windowsLaunchSection =>
+      _s('Windows startup', 'Автозапуск Windows');
+  String get windowsLaunchAtLogon => _s(
+        'Start when signing in to Windows',
+        'Запускать при входе в Windows',
+      );
+  String get windowsLaunchExePath =>
+      _s('Program path', 'Путь к программе');
+  String get windowsLaunchFailed => _s(
+        'Could not update the sign-in task',
+        'Не удалось обновить задачу входа',
+      );
   String get contextSyncRepoUrl =>
       _s('Repository for saving', 'Репозиторий для сохранения');
   String get contextSyncIntervalMinutes =>
@@ -1136,6 +1202,10 @@ class AppLocalizations {
   String get contextSyncProjectHint => _s(
         'This ID is always a UUID and is the folder name in the shared repo. Paste the same UUID on another device, or type the same shared words — identical words always produce the same UUID.',
         'Этот ID всегда UUID и является именем папки в общем репозитории. Вставьте тот же UUID на другом устройстве или введите те же общие слова — одинаковые слова всегда дают один и тот же UUID.',
+      );
+  String get machineSettingsSyncHint => _s(
+        'Skills, rules, memories and mcp.json of this machine travel with sync.',
+        'Skills, rules, memories и mcp.json этой машины едут вместе с синхронизацией.',
       );
   String get contextSyncProjectId => _s('ID', 'ID');
   String get contextSyncProjectIdHint => _s(

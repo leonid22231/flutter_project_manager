@@ -7,6 +7,7 @@ import 'package:project_manager/models/cursor_cli_check_result.dart';
 import 'package:project_manager/models/gitlab_check_result.dart';
 import 'package:project_manager/models/gitlab_settings.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
+import 'package:project_manager/models/windows_launch_settings.dart';
 import 'package:project_manager/services/context_sync_git_service.dart';
 import 'package:project_manager/services/cursor_cli_service.dart';
 import 'package:project_manager/services/gitlab_api_service.dart';
@@ -33,6 +34,7 @@ class AppSettingsState extends ChangeNotifier {
   CursorCliSettings _cursorCliSettings = const CursorCliSettings();
   GitLabSettings _gitlabSettings = const GitLabSettings();
   ContextSyncSettings _contextSyncSettings = const ContextSyncSettings();
+  WindowsLaunchSettings _windowsLaunchSettings = const WindowsLaunchSettings();
   CursorCliCheckResult? _lastCursorCliCheck;
   GitLabCheckResult? _lastGitLabCheck;
   ContextSyncGitResult? _lastContextSyncCheck;
@@ -56,6 +58,7 @@ class AppSettingsState extends ChangeNotifier {
   CursorCliSettings get cursorCliSettings => _cursorCliSettings;
   GitLabSettings get gitlabSettings => _gitlabSettings;
   ContextSyncSettings get contextSyncSettings => _contextSyncSettings;
+  WindowsLaunchSettings get windowsLaunchSettings => _windowsLaunchSettings;
   CursorCliCheckResult? get lastCursorCliCheck => _lastCursorCliCheck;
   GitLabCheckResult? get lastGitLabCheck => _lastGitLabCheck;
   ContextSyncGitResult? get lastContextSyncCheck => _lastContextSyncCheck;
@@ -86,6 +89,7 @@ class AppSettingsState extends ChangeNotifier {
       _cursorCliSettings = await _settings.loadCursorCliSettings();
       _gitlabSettings = await _settings.loadGitLabSettings();
       _contextSyncSettings = await _settings.loadContextSyncSettings();
+      _windowsLaunchSettings = await _settings.loadWindowsLaunchSettings();
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -179,6 +183,12 @@ class AppSettingsState extends ChangeNotifier {
     _contextSyncSettings = settings;
     notifyListeners();
     await _settings.saveContextSyncSettings(settings);
+  }
+
+  Future<void> saveWindowsLaunchSettings(WindowsLaunchSettings settings) async {
+    _windowsLaunchSettings = settings;
+    notifyListeners();
+    await _settings.saveWindowsLaunchSettings(settings);
   }
 
   Future<ContextSyncGitResult> checkContextSyncRepo([

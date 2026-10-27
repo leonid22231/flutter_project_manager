@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
-import 'package:project_manager/l10n/l10n_extensions.dart';
 import 'package:project_manager/models/project.dart';
-import 'package:project_manager/state/app_settings_state.dart';
 import 'package:project_manager/state/project_manager_state.dart';
-import 'package:project_manager/ui/shell/project_files_panel.dart';
-import 'package:project_manager/ui/widgets/panel_resize_divider.dart';
+import 'package:project_manager/ui/project_relocate.dart';
 import 'package:provider/provider.dart';
 
 class ProjectTreePanel extends StatelessWidget {
@@ -18,7 +15,6 @@ class ProjectTreePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final state = context.watch<ProjectManagerState>();
-    final settings = context.watch<AppSettingsState>();
     final projects = state.projects;
     final selected = state.selectedProject;
 
@@ -39,30 +35,26 @@ class ProjectTreePanel extends StatelessWidget {
           ),
           if (projects.isEmpty)
             Expanded(child: _EmptyProjects(onAddProject: onAddProject))
-          else ...[
-            SizedBox(
-              height: settings.projectsPaneHeight,
+          else
+            Expanded(
               child: ListView.builder(
                 itemCount: projects.length,
                 itemBuilder: (context, index) {
                   final project = projects[index];
                   final isSelected = selected?.id == project.id;
+                  final missing = !state.isProjectDirectoryPresent(project);
                   return _ProjectTreeItem(
                     project: project,
                     isSelected: isSelected,
+                    missing: missing,
                     onTap: () => state.selectProject(project),
+                    onRelocate: missing
+                        ? () => pickAndRelocateProject(context, project)
+                        : null,
                   );
                 },
               ),
             ),
-            PanelResizeDivider(
-              axis: Axis.horizontal,
-              onDelta: (dy) => settings.setProjectsPaneHeight(
-                settings.projectsPaneHeight + dy,
-              ),
-            ),
-            const Expanded(child: ProjectFilesPanel()),
-          ],
         ],
       ),
     );
@@ -141,15 +133,20 @@ class _ProjectTreeItem extends StatelessWidget {
   const _ProjectTreeItem({
     required this.project,
     required this.isSelected,
+    required this.missing,
     required this.onTap,
+    this.onRelocate,
   });
 
   final Project project;
   final bool isSelected;
+  final bool missing;
   final VoidCallback onTap;
+  final VoidCallback? onRelocate;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     return Material(
       color: isSelected ? IdeaColors.selected : Colors.transparent,
       child: InkWell(
@@ -160,9 +157,13 @@ class _ProjectTreeItem extends StatelessWidget {
           child: Row(
             children: [
               Icon(
-                Icons.flutter_dash,
+                missing ? Icons.folder_off_outlined : Icons.folder_outlined,
                 size: 16,
-                color: isSelected ? IdeaColors.accent : IdeaColors.textSecondary,
+                color: missing
+                    ? IdeaColors.error
+                    : (isSelected
+                        ? IdeaColors.accent
+                        : IdeaColors.textSecondary),
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -182,15 +183,28 @@ class _ProjectTreeItem extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      project.status.localized(context.l10n),
-                      style: Theme.of(context).textTheme.labelSmall,
+                      missing
+                          ? l10n.projectFolderMissing
+                          : project.path,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: missing ? IdeaColors.error : null,
+                          ),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-              if (!project.sdkAvailable)
-                Icon(Icons.warning_amber, size: 14, color: IdeaColors.warning),
+              if (onRelocate != null)
+                IconButton(
+                  tooltip: l10n.chooseProjectFolder,
+                  onPressed: onRelocate,
+                  icon: const Icon(Icons.drive_file_move_outlined, size: 16),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                ),
             ],
           ),
         ),

@@ -60,7 +60,7 @@ class _ContextSyncProjectSectionState extends State<ContextSyncProjectSection> {
     final l10n = context.l10n;
     final state = context.watch<ProjectManagerState>();
     final appSettings = context.watch<AppSettingsState>();
-    final status = state.contextSyncStatus;
+    final status = state.statusForContext(widget.project.contextId);
     final syncEnabled = appSettings.contextSyncSettings.isActive;
 
     return Container(
@@ -81,6 +81,11 @@ class _ContextSyncProjectSectionState extends State<ContextSyncProjectSection> {
           const SizedBox(height: 6),
           Text(
             l10n.contextSyncProjectHint,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            l10n.machineSettingsSyncHint,
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 12),

@@ -8,6 +8,7 @@ import 'package:project_manager/models/git_repository_status.dart';
 import 'package:project_manager/state/app_settings_state.dart';
 import 'package:project_manager/state/project_manager_state.dart';
 import 'package:project_manager/ui/dialogs/git_graph_dialog.dart';
+import 'package:project_manager/ui/views/git_productivity_section.dart';
 import 'package:project_manager/ui/dialogs/git_history_dialog.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -123,6 +124,8 @@ class _GitLabViewState extends State<GitLabView> {
                 ? null
                 : () => _openUrl(status.gitlabWebUrl!),
           ),
+          const SizedBox(height: 16),
+          GitProductivitySection(projectPath: project.path),
           const SizedBox(height: 16),
           if (status.error != null) ...[
             _ErrorBanner(message: status.error!),

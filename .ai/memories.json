@@ -269,5 +269,82 @@
       "ai-storage-no-task-id"
     ],
     "notes": "Продолжать с PLAN.md на ветке main. legacy = 0cf66e1. settings/ — полные копии, mcp.json с токенами, без шаблона. Проектные UUID не переименовывать."
+  },
+  {
+    "id": "mem-20261027-sync-queue-and-autostart",
+    "date": "2026-10-27T06:14:11Z",
+    "source": "assistant",
+    "summary": "Фазы 1–2: очередь sync всех проектов (startup/interval) и один процесс с задачей планировщика ProjectManager. Git-протокол UUID не менялся.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "Следующая фаза — settings/ в клоне. Тумблер автозапуска применяет schtasks при сохранении настроек. --minimized создаёт окно свёрнутым."
+  },
+  {
+    "id": "mem-20261027-ai-folder-and-missing-stub",
+    "date": "2026-10-27T07:00:00Z",
+    "source": "assistant",
+    "summary": "Упрощённый просмотр .ai и самоанализ на главном экране. Папка только с .ai не считается проектом, sync её не создаёт. Три проекта возвращены в projects.json из карточек, исходная запись Менеджера проектов не затёрта.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "Реальный путь Менеджера проектов — C:\\Work\\utilities\\project_manager. Старый C:\\Work\\project_manager содержит только .ai. Cofix по старому пути тоже только .ai. Контекст Cofix — da7aa3f1-f0d6-5ada-a3d3-fc628a39980d. Перед новым запуском старый процесс нужно полностью закрыть."
+  },
+  {
+    "id": "mem-20261027-long-path-and-git-activity",
+    "date": "2026-10-27T07:15:00Z",
+    "source": "assistant",
+    "summary": "Синхронизация Toppen падала на PathNotFoundException: внутри .ai есть пути длиннее 260 символов (video_player). Обход идёт через \\\\?\\. Во вкладке Git показана активность за 26 недель.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "Протокол sync не менялся. Окно активности — 26 недель, не вся история."
+  },
+  {
+    "id": "mem-20261027-ai-digest-and-long-path",
+    "date": "2026-10-27T07:20:00Z",
+    "source": "assistant",
+    "summary": "PathNotFound на длинном пути был из-за File.absolute до префикса \\\\?\\. Вкладка .ai показывает текущую задачу, открытые вопросы, 8 последних воспоминаний и 6 недавних задач, не весь архив.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "Полный список задач в .ai не выводится: у Toppen их сотни."
+  },
+  {
+    "id": "mem-20261027-no-agent-for-images",
+    "date": "2026-10-27T07:30:00Z",
+    "source": "assistant",
+    "summary": "Синхронизация запускает одного агента на проект, только если отличаются json/md/txt/yaml. Картинки идут быстрым слиянием. Git вызывается с core.longpaths=true на команду, git config не меняется.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "Ошибка Filename too long была на video_player внутри .ai Toppen. CRLF warning не показывается как текст ошибки."
+  },
+  {
+    "id": "mem-20261027-split-large-and-pause",
+    "date": "2026-10-27T07:50:00Z",
+    "source": "assistant",
+    "summary": "После ошибки синхронизации автозапуск ждёт кнопку «Синхронизировать сейчас». Файл от 100 МиБ в клоне контекста режется на части по 95 МиБ (имя_part_N и имя.pm-split.json). В .ai проекта файл остаётся целым: части собираются перед сравнением и режутся перед git add.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "GitHub отклонил installed.apk 160.69 МиБ в неотправленном коммите sync: 9d5a4717. Части ровно в 100 МиБ тоже могут не пройти, поэтому 95."
+  },
+  {
+    "id": "mem-20261027-settings-and-release",
+    "date": "2026-10-27T08:15:00Z",
+    "source": "assistant",
+    "summary": "После очереди проектов синхронизируются skills, rules, memories.json и mcp.json в settings/cursor. Коммит этой папки — sync: settings. Release сверяет version_x.x.x.zip при старте и каждый час.",
+    "applied_rules": [
+      "continue-work",
+      "ai-storage-no-task-id"
+    ],
+    "notes": "settings.json редактора, Happ и lan3 в settings не входят. Debug сборка сама себя не обновляет."
   }
 ]

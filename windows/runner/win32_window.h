@@ -37,7 +37,10 @@ class Win32Window {
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
   // Show the current window. Returns true if the window was successfully shown.
+  // SetStartMinimized(true) makes this show the window minimized.
   bool Show();
+
+  void SetStartMinimized(bool minimized);
 
   // Release OS resources associated with window.
   void Destroy();
@@ -91,6 +94,7 @@ class Win32Window {
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;
+  bool start_minimized_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

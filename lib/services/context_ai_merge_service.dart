@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:project_manager/core/utils/long_path.dart';
 
 /// Additive merge of two `.ai` directory snapshots without deleting data.
 class ContextAiMergeService {
@@ -13,7 +14,7 @@ class ContextAiMergeService {
     required Directory outputDir,
   }) async {
     if (outputDir.existsSync()) {
-      outputDir.deleteSync(recursive: true);
+      deleteTree(outputDir);
     }
     outputDir.createSync(recursive: true);
 
@@ -22,10 +23,11 @@ class ContextAiMergeService {
     final all = {...localFiles, ...remoteFiles};
 
     for (final relative in all) {
-      final localFile = File(p.join(localDir.path, relative));
-      final remoteFile = File(p.join(remoteDir.path, relative));
-      final outFile = File(p.join(outputDir.path, relative));
-      outFile.parent.createSync(recursive: true);
+      final localFile = longFile(p.join(localDir.path, relative));
+      final remoteFile = longFile(p.join(remoteDir.path, relative));
+      final outPath = p.join(outputDir.path, relative);
+      final outFile = longFile(outPath);
+      ensureParent(outPath);
 
       final localExists = localFile.existsSync();
       final remoteExists = remoteFile.existsSync();
@@ -178,12 +180,10 @@ class ContextAiMergeService {
   Set<String> _listRelativeFiles(Directory root) {
     if (!root.existsSync()) return {};
     final result = <String>{};
-    for (final entity in root.listSync(recursive: true, followLinks: false)) {
-      if (entity is! File) continue;
-      final relative = p.relative(entity.path, from: root.path);
-      if (relative.startsWith('.git')) continue;
+    walkFiles(root, (file, relative) {
+      if (relative.startsWith('.git')) return;
       result.add(relative);
-    }
+    });
     return result;
   }
 

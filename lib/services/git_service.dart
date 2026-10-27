@@ -6,6 +6,7 @@ import 'package:project_manager/core/utils/git_graph_layout.dart';
 import 'package:project_manager/models/git_commit_graph_entry.dart';
 import 'package:project_manager/models/git_commit_entry.dart';
 import 'package:project_manager/models/git_file_change.dart';
+import 'package:project_manager/models/git_productivity.dart';
 import 'package:project_manager/models/git_repository_status.dart';
 
 GitFileChange? parseGitPorcelainLine(String line) {
@@ -423,6 +424,33 @@ class GitService {
     }
 
     return parseGitLogOutput(_gitOutput(result.stdout));
+  }
+
+  Future<GitProductivity> getProductivity(String projectPath) async {
+    final now = DateTime.now();
+    final since = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: GitProductivity.windowDays));
+    final sinceArg =
+        '${since.year.toString().padLeft(4, '0')}-${since.month.toString().padLeft(2, '0')}-${since.day.toString().padLeft(2, '0')}';
+    final result = await _runGit(
+      [
+        'log',
+        '--all',
+        '--date=short',
+        '--since=$sinceArg',
+        '--numstat',
+        '--pretty=format:%x1e%an%x1f%ae%x1f%ad%x1f%h%x1f%s',
+      ],
+      workingDirectory: projectPath,
+    );
+    if (result.exitCode != 0) {
+      throw Exception(_extractError(result));
+    }
+    return parseGitProductivity(
+      _gitOutput(result.stdout),
+      since: since,
+      now: now,
+    );
   }
 
   Future<List<GitCommitGraphRow>> getProjectCommitGraph(

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:project_manager/core/utils/long_path.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/services/analysis/cursor_cli_stream_runner.dart';
 import 'package:project_manager/services/app_log_service.dart';
@@ -169,29 +170,26 @@ Rules:
 
   int _countFiles(Directory root) {
     if (!root.existsSync()) return 0;
-    return root
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => !p.basename(f.path).startsWith('.'))
-        .length;
+    var count = 0;
+    walkFiles(root, (file, relative) {
+      if (!p.basename(relative).startsWith('.')) count++;
+    });
+    return count;
   }
 
   Future<void> _copyTree(Directory source, Directory dest) async {
     if (dest.existsSync()) {
-      dest.deleteSync(recursive: true);
+      deleteTree(dest);
     }
     dest.createSync(recursive: true);
     if (!source.existsSync()) return;
 
-    await for (final entity in source.list(recursive: true, followLinks: false)) {
-      final relative = p.relative(entity.path, from: source.path);
+    final files = <(File, String)>[];
+    walkFiles(source, (file, relative) => files.add((file, relative)));
+    for (final (file, relative) in files) {
       final targetPath = p.join(dest.path, relative);
-      if (entity is Directory) {
-        Directory(targetPath).createSync(recursive: true);
-      } else if (entity is File) {
-        File(targetPath).parent.createSync(recursive: true);
-        await entity.copy(targetPath);
-      }
+      ensureParent(targetPath);
+      await longFile(targetPath).writeAsBytes(await file.readAsBytes());
     }
   }
 }

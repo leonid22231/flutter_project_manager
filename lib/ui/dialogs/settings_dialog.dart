@@ -1,15 +1,20 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:project_manager/core/theme/idea_theme.dart';
 import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/models/context_sync_settings.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/gitlab_settings.dart';
+import 'package:project_manager/models/windows_launch_settings.dart';
 import 'package:project_manager/services/settings_service.dart';
+import 'package:project_manager/services/windows_logon_task_service.dart';
 import 'package:project_manager/state/app_settings_state.dart';
 import 'package:project_manager/state/project_manager_state.dart';
 import 'package:project_manager/ui/dialogs/context_sync_settings_section.dart';
 import 'package:project_manager/ui/dialogs/cursor_cli_settings_section.dart';
 import 'package:project_manager/ui/dialogs/gitlab_settings_section.dart';
+import 'package:project_manager/ui/dialogs/windows_launch_settings_section.dart';
 import 'package:provider/provider.dart';
 
 class SettingsDialog extends StatefulWidget {
@@ -24,7 +29,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late CursorCliSettings _cursorCliSettings;
   late GitLabSettings _gitlabSettings;
   late ContextSyncSettings _contextSyncSettings;
+  late WindowsLaunchSettings _windowsLaunchSettings;
   late double _uiScale;
+  String? _windowsLaunchError;
+  final WindowsLogonTaskService _windowsLogonTask = WindowsLogonTaskService();
 
   @override
   void initState() {
@@ -34,6 +42,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
     _cursorCliSettings = settings.cursorCliSettings;
     _gitlabSettings = settings.gitlabSettings;
     _contextSyncSettings = settings.contextSyncSettings;
+    _windowsLaunchSettings = settings.windowsLaunchSettings.withDefaultExe(
+      Platform.resolvedExecutable,
+    );
     _uiScale = settings.uiScale;
   }
 
@@ -107,6 +118,17 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     const SizedBox(height: 20),
                     const Divider(),
                     const SizedBox(height: 20),
+                    WindowsLaunchSettingsSection(
+                      settings: _windowsLaunchSettings,
+                      error: _windowsLaunchError,
+                      onChanged: (value) => setState(() {
+                        _windowsLaunchSettings = value;
+                        _windowsLaunchError = null;
+                      }),
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 20),
                     CursorCliSettingsSection(
                       settings: _cursorCliSettings,
                       onChanged: (value) =>
@@ -136,11 +158,30 @@ class _SettingsDialogState extends State<SettingsDialog> {
               onCancel: () => Navigator.of(context).pop(),
               onSave: () async {
                 final appSettings = context.read<AppSettingsState>();
+                final previousLaunch = appSettings.windowsLaunchSettings;
+                final nextLaunch = _windowsLaunchSettings.withDefaultExe(
+                  Platform.resolvedExecutable,
+                );
+                if (nextLaunch.launchAtLogon || previousLaunch.launchAtLogon) {
+                  final task = await _windowsLogonTask.apply(
+                    enabled: nextLaunch.launchAtLogon,
+                    exePath: nextLaunch.exePath,
+                  );
+                  if (!task.ok) {
+                    if (!context.mounted) return;
+                    setState(() {
+                      _windowsLaunchError =
+                          task.message ?? context.l10n.windowsLaunchFailed;
+                    });
+                    return;
+                  }
+                }
                 await appSettings.setLocale(_selectedLocale);
                 await appSettings.setUiScale(_uiScale);
                 await appSettings.saveCursorCliSettings(_cursorCliSettings);
                 await appSettings.saveGitLabSettings(_gitlabSettings);
                 await appSettings.saveContextSyncSettings(_contextSyncSettings);
+                await appSettings.saveWindowsLaunchSettings(nextLaunch);
                 if (context.mounted) {
                   context.read<ProjectManagerState>().reloadContextSyncSchedule();
                   Navigator.of(context).pop();

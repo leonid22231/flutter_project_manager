@@ -41,12 +41,14 @@ class TopActionBar extends StatelessWidget {
             label: l10n.refresh,
             onPressed: onRefresh,
           ),
-          const SizedBox(width: 4),
-          _ActionButton(
-            icon: Icons.upload_file,
-            label: l10n.exportDocs,
-            onPressed: onExportDocs,
-          ),
+          if (onExportDocs != null) ...[
+            const SizedBox(width: 4),
+            _ActionButton(
+              icon: Icons.upload_file,
+              label: l10n.exportDocs,
+              onPressed: onExportDocs,
+            ),
+          ],
           const Spacer(),
           _ActionButton(
             icon: Icons.settings,

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:project_manager/core/utils/context_id_utils.dart';
+import 'package:project_manager/core/utils/long_path.dart';
 import 'package:project_manager/core/utils/project_context_paths.dart';
 import 'package:project_manager/models/context_sync_settings.dart';
 import 'package:project_manager/models/context_sync_status.dart';
@@ -12,6 +13,7 @@ import 'package:project_manager/models/project.dart';
 import 'package:project_manager/services/app_log_service.dart';
 import 'package:project_manager/services/context_ai_cursor_merge_service.dart';
 import 'package:project_manager/services/context_ai_merge_service.dart';
+import 'package:project_manager/services/context_large_file_split.dart';
 import 'package:project_manager/services/context_sync_git_service.dart';
 
 typedef ContextSyncStatusCallback = void Function(ContextSyncStatus status);
@@ -21,8 +23,9 @@ typedef ContextSyncShouldContinue = bool Function();
 
 /// Orchestrates pull → diff → (merge → write → push) for a project.
 ///
-/// If local `.ai` already matches the remote context folder, sync stops after
-/// the diff (no Cursor merge, no write, no push).
+/// If local `.ai` already matches the remote context folder, sync still
+/// rewrites oversized files in the clone as parts and pushes that commit
+/// when the working tree changed. It does not merge or rewrite `.ai`.
 ///
 /// Cursor is used only when the same paths differ on both sides (smart merge).
 /// Asymmetric adds use a fast additive merge.
@@ -38,6 +41,8 @@ class ContextSyncService {
   final ContextSyncGitService _git;
   final ContextAiMergeService _additive;
   final ContextAiCursorMergeService _cursorMerge;
+
+  ContextSyncGitService get git => _git;
   final _log = AppLogService.instance;
 
   var _syncing = false;
@@ -138,18 +143,35 @@ class ContextSyncService {
       final cloneDir = await _git.getCloneDirectory();
       final remoteContextDir =
           Directory(_git.contextFolderPath(cloneDir, contextId));
+      final projectRoot = Directory(project.path);
+      if (!projectRoot.existsSync()) {
+        status = ContextSyncStatus(
+          phase: ContextSyncPhase.error,
+          contextId: contextId,
+          error: 'Project folder was not found',
+        );
+        onStatus?.call(status);
+        _log.warn(
+          'Sync stopped — project folder was not found',
+          source: 'context-sync',
+          data: {'path': project.path, 'contextId': contextId},
+        );
+        return status;
+      }
+
       final localAiDir =
           Directory(ProjectContextPaths.contextDir(project.path));
 
       if (!localAiDir.existsSync()) {
-        localAiDir.createSync(recursive: true);
+        localAiDir.createSync();
       }
 
       status = status.copyWith(message: 'Comparing local vs remote…');
       onStatus?.call(status);
+      await Future<void>.delayed(Duration.zero);
 
       final compareStarted = DateTime.now();
-      final diff = _diffTrees(localAiDir, remoteContextDir);
+      final diff = await _diffTrees(localAiDir, remoteContextDir);
       _log.info(
         diff.isEmpty
             ? 'Context identical — sync not needed'
@@ -170,6 +192,24 @@ class ContextSyncService {
       );
 
       if (diff.isEmpty) {
+        final clean = await _git.isWorkingTreeClean();
+        if (!clean) {
+          final normalized = await _git.commitSplitIfNeeded(
+            repoUrl: syncSettings.repoUrl,
+            message: 'sync: $contextId',
+          );
+          if (!normalized.ok) {
+            status = ContextSyncStatus(
+              phase: ContextSyncPhase.error,
+              contextId: contextId,
+              lastSyncedAt: DateTime.now(),
+              error: normalized.message,
+              message: 'Local .ai matches; push of split files failed',
+            );
+            onStatus?.call(status);
+            return status;
+          }
+        }
         final totalMs = DateTime.now().difference(started).inMilliseconds;
         status = ContextSyncStatus(
           phase: ContextSyncPhase.idle,
@@ -190,6 +230,16 @@ class ContextSyncService {
         return _cancelled(contextId, onStatus);
       }
 
+      final remoteCatalog = ContextLargeFileSplit.catalog(remoteContextDir);
+      final needsJoin = remoteCatalog.virtuals.any(
+        (virtual) =>
+            diff.onlyRemote.contains(virtual.relative) ||
+            diff.changed.contains(virtual.relative),
+      );
+      if (needsJoin) {
+        await ContextLargeFileSplit.joinInPlace(remoteContextDir);
+      }
+
       status = status.copyWith(message: 'Merging .ai context…');
       onStatus?.call(status);
 
@@ -202,8 +252,18 @@ class ContextSyncService {
 
       // Cursor only when the same paths differ — smart multi-context merge.
       // Asymmetric adds/removes use fast additive merge.
-      final needsCursor =
-          cursorSettings.enabled && diff.changed.isNotEmpty;
+      final textConflicts =
+          diff.changed.where(contextSyncWantsCursorMerge).toList();
+      final needsCursor = cursorSettings.enabled && textConflicts.isNotEmpty;
+      if (cursorSettings.enabled &&
+          diff.changed.isNotEmpty &&
+          textConflicts.isEmpty) {
+        _log.info(
+          'Cursor merge skipped — differing files are images or other binaries',
+          source: 'context-sync',
+          data: {'changed': diff.changed.length},
+        );
+      }
       late final Directory mergedDir;
       if (needsCursor) {
         AppLogService.instance.showOverlay();
@@ -220,7 +280,7 @@ class ContextSyncService {
           remoteDir: remoteSnap,
           workRoot: workRoot,
           settings: cursorSettings,
-          conflictPaths: diff.changed,
+          conflictPaths: textConflicts,
         );
         _log.info(
           'Cursor merge done',
@@ -368,20 +428,17 @@ class ContextSyncService {
 
   Future<void> _copyTree(Directory source, Directory dest) async {
     if (dest.existsSync()) {
-      dest.deleteSync(recursive: true);
+      deleteTree(dest);
     }
     dest.createSync(recursive: true);
     if (!source.existsSync()) return;
 
-    await for (final entity in source.list(recursive: true, followLinks: false)) {
-      final relative = p.relative(entity.path, from: source.path);
+    final files = <(File, String)>[];
+    walkFiles(source, (file, relative) => files.add((file, relative)));
+    for (final (file, relative) in files) {
       final targetPath = p.join(dest.path, relative);
-      if (entity is Directory) {
-        Directory(targetPath).createSync(recursive: true);
-      } else if (entity is File) {
-        File(targetPath).parent.createSync(recursive: true);
-        await entity.copy(targetPath);
-      }
+      ensureParent(targetPath);
+      await longFile(targetPath).writeAsBytes(await file.readAsBytes());
     }
   }
 
@@ -392,18 +449,16 @@ class ContextSyncService {
   }) async {
     final preserved = <String, List<int>>{};
     if (preserveIgnored && dest.existsSync()) {
-      for (final entity in dest.listSync(recursive: true, followLinks: false)) {
-        if (entity is! File) continue;
-        final relative = p.relative(entity.path, from: dest.path);
-        if (!_shouldIgnoreRelativePath(relative)) continue;
+      walkFiles(dest, (file, relative) {
+        if (!_shouldIgnoreRelativePath(relative)) return;
         try {
-          preserved[relative] = await entity.readAsBytes();
+          preserved[relative] = file.readAsBytesSync();
         } catch (_) {}
-      }
+      });
     }
 
     if (dest.existsSync()) {
-      dest.deleteSync(recursive: true);
+      deleteTree(dest);
     }
     await _copyTree(source, dest);
 
@@ -415,9 +470,17 @@ class ContextSyncService {
   }
 
   /// Compares local `.ai` vs remote context folder. Ignores noisy log artifacts.
-  _ContextDiff _diffTrees(Directory local, Directory remote) {
-    final localFiles = _fileMap(local);
-    final remoteFiles = _fileMap(remote);
+  ///
+  /// Files stored as parts are compared by hash, without unpacking them.
+  /// Other binaries are compared by size and modification time.
+  Future<_ContextDiff> _diffTrees(Directory local, Directory remote) async {
+    final catalog = ContextLargeFileSplit.catalog(remote);
+    final localFiles = await _fileMap(local);
+    final remoteFiles = await _fileMap(remote, skip: catalog.skip);
+    for (final virtual in catalog.virtuals) {
+      remoteFiles[virtual.relative] =
+          await ContextLargeFileSplit.partsSignature(virtual.manifest);
+    }
     final onlyLocal = <String>[];
     final onlyRemote = <String>[];
     final changed = <String>[];
@@ -442,21 +505,54 @@ class ContextSyncService {
     );
   }
 
-  Map<String, String> _fileMap(Directory root) {
+  static const _statOnlyBytes = 256 * 1024;
+
+  Future<Map<String, String>> _fileMap(
+    Directory root, {
+    Set<String> skip = const {},
+  }) async {
     final map = <String, String>{};
     if (!root.existsSync()) return map;
-    for (final entity in root.listSync(recursive: true, followLinks: false)) {
-      if (entity is! File) continue;
-      final relative = p.relative(entity.path, from: root.path);
-      if (_shouldIgnoreRelativePath(relative)) continue;
+    final large = <String, File>{};
+    walkFiles(root, (file, relative) {
+      if (skip.contains(relative)) return;
+      if (_shouldIgnoreRelativePath(relative)) return;
       try {
-        map[relative] = entity.readAsStringSync();
+        final length = file.lengthSync();
+        final mtime = file.lastModifiedSync().millisecondsSinceEpoch;
+        if (length >= ContextLargeFileSplit.githubLimitBytes) {
+          large[relative] = file;
+          return;
+        }
+        if (length > _statOnlyBytes || _hasBinaryPrefix(file)) {
+          map[relative] = 'bin:$length:$mtime';
+          return;
+        }
+        map[relative] = file.readAsStringSync();
       } catch (_) {
-        map[relative] =
-            'bin:${entity.lengthSync()}:${entity.lastModifiedSync().millisecondsSinceEpoch}';
+        try {
+          map[relative] =
+              'bin:${file.lengthSync()}:${file.lastModifiedSync().millisecondsSinceEpoch}';
+        } catch (_) {}
       }
+    });
+    for (final entry in large.entries) {
+      map[entry.key] = await ContextLargeFileSplit.fileSignature(entry.value);
     }
     return map;
+  }
+
+  bool _hasBinaryPrefix(File file) {
+    RandomAccessFile? handle;
+    try {
+      handle = file.openSync();
+      final sample = handle.readSync(512);
+      return sample.contains(0);
+    } catch (_) {
+      return true;
+    } finally {
+      handle?.closeSync();
+    }
   }
 
   /// Local-only / ephemeral files that should not force a sync.
@@ -502,4 +598,12 @@ class _ContextDiff {
 
   bool get isEmpty =>
       onlyLocal.isEmpty && onlyRemote.isEmpty && changed.isEmpty;
+}
+
+/// Cursor is for text that can be merged. Pictures and archives stay on the
+/// fast additive merge.
+bool contextSyncWantsCursorMerge(String relative) {
+  final name = p.basename(relative).toLowerCase();
+  const extensions = ['.json', '.md', '.txt', '.yaml', '.yml'];
+  return extensions.any(name.endsWith);
 }

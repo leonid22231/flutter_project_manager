@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:project_manager/services/context_large_file_split.dart';
 
 class ContextSyncGitResult {
   const ContextSyncGitResult({
@@ -84,6 +85,31 @@ class ContextSyncGitService {
     required String repoUrl,
     required String message,
   }) {
+    return _commitLocked(
+      repoUrl: repoUrl,
+      message: message,
+      pushIfClean: true,
+    );
+  }
+
+  /// Splits oversized files, then commits and pushes only when that changed
+  /// the working tree. A clean tree is left unpushed.
+  Future<ContextSyncGitResult> commitSplitIfNeeded({
+    required String repoUrl,
+    required String message,
+  }) {
+    return _commitLocked(
+      repoUrl: repoUrl,
+      message: message,
+      pushIfClean: false,
+    );
+  }
+
+  Future<ContextSyncGitResult> _commitLocked({
+    required String repoUrl,
+    required String message,
+    required bool pushIfClean,
+  }) {
     return _withLock(() async {
       final cloneDir = await getCloneDirectory();
       if (!Directory(p.join(cloneDir.path, '.git')).existsSync()) {
@@ -99,21 +125,90 @@ class ContextSyncGitService {
       );
       if (!status.ok) return status;
 
-      if (status.stdout.trim().isNotEmpty) {
-        final add = await _runGit(
-          ['add', '-A'],
-          workingDirectory: cloneDir.path,
-        );
-        if (!add.ok) return add;
-
-        final commit = await _runGit(
-          ['commit', '-m', message],
-          workingDirectory: cloneDir.path,
-        );
-        if (!commit.ok) return commit;
+      if (status.stdout.trim().isEmpty) {
+        if (!pushIfClean) {
+          return const ContextSyncGitResult(ok: true);
+        }
+        return _pushCurrentBranch(cloneDir.path);
       }
 
+      await ContextLargeFileSplit.splitInPlace(cloneDir);
+
+      final afterSplit = await _runGit(
+        ['status', '--porcelain'],
+        workingDirectory: cloneDir.path,
+      );
+      if (!afterSplit.ok) return afterSplit;
+      if (afterSplit.stdout.trim().isEmpty) {
+        if (!pushIfClean) {
+          return const ContextSyncGitResult(ok: true);
+        }
+        return _pushCurrentBranch(cloneDir.path);
+      }
+
+      final add = await _runGit(
+        ['add', '-A'],
+        workingDirectory: cloneDir.path,
+      );
+      if (!add.ok) return add;
+
+      final commit = await _runGit(
+        ['commit', '-m', message],
+        workingDirectory: cloneDir.path,
+      );
+      if (!commit.ok) return commit;
+
       return _pushCurrentBranch(cloneDir.path);
+    });
+  }
+
+  /// Commits only the `settings` directory. Project UUID folders stay out
+  /// of this commit. The message is `sync: settings`.
+  Future<ContextSyncGitResult> commitSettings({required String repoUrl}) {
+    return _withLock(() async {
+      final cloneDir = await getCloneDirectory();
+      if (!Directory(p.join(cloneDir.path, '.git')).existsSync()) {
+        final cloned = await _ensureCloneUnlocked(repoUrl);
+        if (!cloned.ok) return cloned;
+      }
+
+      await _ensureLocalBranch(cloneDir.path);
+      final status = await _runGit(
+        ['status', '--porcelain', '--', 'settings'],
+        workingDirectory: cloneDir.path,
+      );
+      if (!status.ok) return status;
+      if (status.stdout.trim().isEmpty) {
+        return const ContextSyncGitResult(ok: true);
+      }
+
+      final add = await _runGit(
+        ['add', '--', 'settings'],
+        workingDirectory: cloneDir.path,
+      );
+      if (!add.ok) return add;
+
+      final commit = await _runGit(
+        ['commit', '-m', 'sync: settings'],
+        workingDirectory: cloneDir.path,
+      );
+      if (!commit.ok) return commit;
+      return _pushCurrentBranch(cloneDir.path);
+    });
+  }
+
+  /// True when the clone has no staged or unstaged changes.
+  /// A missing clone counts as clean: there is nothing to commit.
+  Future<bool> isWorkingTreeClean() {
+    return _withLock(() async {
+      final cloneDir = await getCloneDirectory();
+      if (!Directory(p.join(cloneDir.path, '.git')).existsSync()) return true;
+      final status = await _runGit(
+        ['status', '--porcelain'],
+        workingDirectory: cloneDir.path,
+      );
+      if (!status.ok) return false;
+      return status.stdout.trim().isEmpty;
     });
   }
 
@@ -405,20 +500,19 @@ class ContextSyncGitService {
     try {
       final result = await Process.run(
         'git',
-        args,
+        ['-c', 'core.longpaths=true', ...args],
         workingDirectory: workingDirectory,
         runInShell: true,
       );
       final ok = result.exitCode == 0;
+      final stderr = result.stderr?.toString() ?? '';
       return ContextSyncGitResult(
         ok: ok,
         stdout: result.stdout?.toString() ?? '',
-        stderr: result.stderr?.toString() ?? '',
+        stderr: stderr,
         error: ok
             ? null
-            : (result.stderr?.toString().trim().isNotEmpty == true
-                ? result.stderr.toString().trim()
-                : 'git ${args.first} failed (exit ${result.exitCode})'),
+            : contextSyncGitError(stderr, result.exitCode, args.first),
       );
     } catch (e) {
       return ContextSyncGitResult(
@@ -427,6 +521,23 @@ class ContextSyncGitService {
       );
     }
   }
+}
+
+/// Drops Git's CRLF noise so a real failure stays readable.
+String contextSyncGitError(String stderr, int exitCode, String command) {
+  final serious = stderr
+      .split(RegExp(r'\r?\n'))
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .where((line) {
+        final lower = line.toLowerCase();
+        if (lower.startsWith('warning:')) return false;
+        if (lower.contains('lf will be replaced by crlf')) return false;
+        return true;
+      })
+      .toList();
+  if (serious.isEmpty) return 'git $command failed (exit $exitCode)';
+  return serious.join('\n');
 }
 
 class _RemoteInfo {

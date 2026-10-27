@@ -9,9 +9,11 @@ import 'package:project_manager/core/utils/project_context_paths.dart';
 import 'package:project_manager/core/utils/syntax_language.dart';
 import 'package:project_manager/models/change_record.dart';
 import 'package:project_manager/models/context_sync_status.dart';
+import 'package:project_manager/models/context_sync_settings.dart';
 import 'package:project_manager/models/file_preview_focus.dart';
 import 'package:project_manager/models/git_commit_entry.dart';
 import 'package:project_manager/models/git_commit_graph_entry.dart';
+import 'package:project_manager/models/git_productivity.dart';
 import 'package:project_manager/models/git_repository_status.dart';
 import 'package:project_manager/models/global_package_metadata.dart';
 import 'package:project_manager/models/opened_file.dart';
@@ -20,8 +22,11 @@ import 'package:project_manager/models/widget_entry.dart';
 import 'package:project_manager/models/project_file_node.dart';
 import 'package:project_manager/models/project_status.dart';
 import 'package:project_manager/models/validation_result.dart';
-import 'package:project_manager/services/context_sync_service.dart';
 import 'package:project_manager/services/app_log_service.dart';
+import 'package:project_manager/services/app_release_update.dart';
+import 'package:project_manager/services/context_sync_service.dart';
+import 'package:project_manager/services/workstation_settings_sync.dart';
+import 'package:project_manager/app_version.dart';
 import 'package:project_manager/services/cursor_cli_flight.dart';
 import 'package:project_manager/services/dependency_resolver_service.dart';
 import 'package:project_manager/services/documentation_service.dart';
@@ -118,20 +123,48 @@ class ProjectManagerState extends ChangeNotifier {
   Map<String, GlobalPackageMetadata> _globalPackageMetadata = {};
   GitRepositoryStatus? _gitRepositoryStatus;
   ContextSyncStatus _contextSyncStatus = ContextSyncStatus.idle;
+  final Map<String, ContextSyncStatus> _statusByContext = {};
   StreamSubscription<FileSystemEvent>? _aiWatchSub;
   Timer? _contextSyncDebounce;
   Timer? _contextSyncInterval;
-  var _suppressAiWatch = false;
+  Timer? _appUpdateTimer;
+  var _aiWatchSuppressCount = 0;
   final Map<String, DateTime> _lastSuccessfulSyncAt = {};
   /// Projects that already received one auto Cursor sync this session.
+  /// Only `project-selected` and `ai-watch` set this. `startup` and `interval` do not.
   final Set<String> _autoCursorSyncDone = {};
+  /// Bumped on project switch and when semantic indexing starts.
+  /// Selection-armed sync (`project-selected`, `ai-watch`, manual) stops when it changes.
   var _syncRunGeneration = 0;
+  /// Bumped only when semantic indexing starts, so a project switch does not
+  /// cancel `startup` / `interval` sync of other projects.
+  var _syncAbortGeneration = 0;
+  var _contextSyncQueueRunning = false;
+  Future<void>? _contextSyncQueue;
+  Future<void> _syncTail = Future<void>.value();
   var _semanticIndexPauseDepth = 0;
+  /// Set after a sync error. Startup, interval, and folder watch stay idle
+  /// until the user presses sync.
+  var _autoSyncPausedAfterError = false;
 
   static const _autoSyncCooldown = Duration(minutes: 5);
   static const _projectSelectDebounce = Duration(seconds: 3);
   static const _aiWatchDebounce = Duration(seconds: 20);
   static const _postSyncSuppress = Duration(seconds: 5);
+  static const _networkRetryDelays = <Duration>[
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+    Duration(seconds: 60),
+  ];
+  static const _networkAttemptsPerPass = 3;
+
+  /// Replaces the post-sync watch suppress wait in tests.
+  @visibleForTesting
+  Duration debugPostSyncSuppress = _postSyncSuppress;
+
+  /// Replaces network-backoff sleeps in tests. Production waits [duration].
+  @visibleForTesting
+  Future<void> Function(Duration duration)? debugNetworkDelay;
 
   List<Project> get projects => List.unmodifiable(_projects);
   Project? get selectedProject => _selectedProject;
@@ -159,6 +192,19 @@ class ProjectManagerState extends ChangeNotifier {
   GitRepositoryStatus? get gitRepositoryStatus => _gitRepositoryStatus;
   ContextSyncStatus get contextSyncStatus => _contextSyncStatus;
 
+  /// Status of one project. The queue's current project does not overwrite it.
+  ContextSyncStatus statusForContext(String contextId) =>
+      _statusByContext[contextId] ?? ContextSyncStatus.idle;
+
+  void _rememberSyncStatus(ContextSyncStatus status) {
+    _contextSyncStatus = status;
+    final id = status.contextId;
+    if (id != null && id.isNotEmpty) {
+      _statusByContext[id] = status;
+    }
+    notifyListeners();
+  }
+
   /// While semantic indexing runs, auto context-sync must not rewrite `.ai`.
   bool get isSemanticIndexPaused => _semanticIndexPauseDepth > 0;
 
@@ -167,6 +213,7 @@ class ProjectManagerState extends ChangeNotifier {
     // Abort any in-flight sync before it can replaceTree over index/*.
     if (_semanticIndexPauseDepth == 1) {
       _syncRunGeneration++;
+      _syncAbortGeneration++;
     }
   }
 
@@ -188,12 +235,10 @@ class ProjectManagerState extends ChangeNotifier {
       _projects = await _storage.loadProjects();
       if (_projects.isNotEmpty && _selectedProject == null) {
         _selectedProject = _projects.first;
-        await _loadProjectFiles(_selectedProject!.path);
-        await _resolveDependenciesForSelectedProject();
-        await _scanWidgetsForSelectedProject();
-        await _refreshGitStatusForSelectedProject();
-        _armContextSyncForSelectedProject();
+        await _openSelectedProject();
       }
+      unawaited(_runContextSyncAll(reason: 'startup'));
+      _armAppUpdateChecks();
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -213,11 +258,7 @@ class ProjectManagerState extends ChangeNotifier {
     notifyListeners();
 
     if (project != null) {
-      _loadProjectFiles(project.path);
-      _resolveDependenciesForSelectedProject();
-      _scanWidgetsForSelectedProject();
-      _refreshGitStatusForSelectedProject();
-      _armContextSyncForSelectedProject();
+      unawaited(_openSelectedProject());
     } else {
       _fileTree = [];
       _expandedDirectoryPaths = {};
@@ -468,10 +509,7 @@ class ProjectManagerState extends ChangeNotifier {
       _projects = [..._projects, project];
       _selectedProject = project;
       _activeTab = WorkspaceTab.overview;
-      await _loadProjectFiles(project.path);
-      await _resolveDependenciesForSelectedProject();
-      await _scanWidgetsForSelectedProject();
-      _armContextSyncForSelectedProject();
+      await _openSelectedProject();
       return project;
     } catch (e) {
       _lastError = 'Failed to add project: $e';
@@ -513,9 +551,68 @@ class ProjectManagerState extends ChangeNotifier {
     await _documentation.exportDocumentation(project);
   }
 
+bool isProjectDirectoryPresent(Project project) {
+  final path = project.path.trim();
+  if (path.isEmpty) return false;
+  final dir = Directory(path);
+  if (!dir.existsSync()) return false;
+  try {
+    final children = dir.listSync(followLinks: false);
+    if (children.isEmpty) return true;
+    return children.any((entity) => p.basename(entity.path) != '.ai');
+  } catch (_) {
+    return false;
+  }
+}
+
+  /// Points an existing project at another folder on this computer.
+  /// Returns false when [rawPath] is empty or the directory is missing.
+  Future<bool> relocateProjectDirectory(String projectId, String rawPath) async {
+    final path = rawPath.trim();
+    if (path.isEmpty || !Directory(path).existsSync()) {
+      notifyListeners();
+      return false;
+    }
+    final index = _projects.indexWhere((item) => item.id == projectId);
+    if (index < 0) return false;
+
+    final updated = _projects[index].copyWith(path: path);
+    final switching = _selectedProject?.id != projectId;
+    await updateProject(updated);
+    if (switching) {
+      _syncRunGeneration++;
+      CursorCliFlight.instance.onProjectSwitched(projectId);
+      _selectedProject = updated;
+    }
+    await _openSelectedProject();
+    return true;
+  }
+
+  Future<void> _openSelectedProject() async {
+    final project = _selectedProject;
+    if (project == null) return;
+    if (!isProjectDirectoryPresent(project)) {
+      _fileTree = [];
+      _expandedDirectoryPaths = {};
+      _gitRepositoryStatus = null;
+      _stopContextSyncWatchers();
+      notifyListeners();
+      return;
+    }
+    await _refreshGitStatusForSelectedProject();
+    if (_selectedProject?.id != project.id) return;
+    _armContextSyncForSelectedProject();
+  }
+
   Future<void> refreshSelectedProject() async {
     final project = _selectedProject;
     if (project == null) return;
+    if (!isProjectDirectoryPresent(project)) {
+      _gitRepositoryStatus = null;
+      _stopContextSyncWatchers();
+      notifyListeners();
+      return;
+    }
 
     final validation = await _validator.validate(project.path);
     if (!validation.isValid) {
@@ -546,9 +643,6 @@ class ProjectManagerState extends ChangeNotifier {
       ),
     );
 
-    await _loadProjectFiles(project.path);
-    await _resolveDependenciesForSelectedProject();
-    await _scanWidgetsForSelectedProject();
     await _refreshGitStatusForSelectedProject();
   }
 
@@ -571,6 +665,14 @@ class ProjectManagerState extends ChangeNotifier {
     final project = _selectedProject;
     if (project == null || line <= 0) return [];
     return _gitService.getLineHistory(project.path, relativePath, line);
+  }
+
+  Future<GitProductivity> loadGitProductivity() async {
+    final project = _selectedProject;
+    if (project == null) {
+      throw StateError('No project selected');
+    }
+    return _gitService.getProductivity(project.path);
   }
 
   Future<List<GitCommitGraphRow>> loadGitProjectGraph() async {
@@ -762,8 +864,49 @@ class ProjectManagerState extends ChangeNotifier {
     }
   }
 
-  Future<void> syncContextNow() =>
-      _runContextSync(reason: 'manual', force: true);
+  Future<void> syncContextNow() async {
+    await _runContextSync(reason: 'manual', force: true);
+  }
+
+  @visibleForTesting
+  Future<void> runContextSyncAllForTest(String reason) =>
+      _runContextSyncAll(reason: reason);
+
+  @visibleForTesting
+  Future<void> runContextSyncForTest({
+    required String reason,
+    bool force = false,
+  }) async {
+    await _runContextSync(reason: reason, force: force);
+  }
+
+  @visibleForTesting
+  bool autoCursorSyncDoneForTest(String projectId) =>
+      _autoCursorSyncDone.contains(projectId);
+
+  @visibleForTesting
+  void debugClearSyncCooldown() => _lastSuccessfulSyncAt.clear();
+
+  @visibleForTesting
+  bool get autoSyncPausedAfterErrorForTest => _autoSyncPausedAfterError;
+
+  @visibleForTesting
+  Future<void> get debugContextSyncQueue =>
+      _contextSyncQueue ?? Future<void>.value();
+
+  @visibleForTesting
+  void setProjectsForTest(List<Project> projects, {Project? selected}) {
+    _projects = List<Project>.of(projects);
+    if (selected != null) _selectedProject = selected;
+  }
+
+  /// Same generation bump as [selectProject], without loading files.
+  @visibleForTesting
+  void debugDetachSelection(Project? project) {
+    _syncRunGeneration++;
+    CursorCliFlight.instance.onProjectSwitched(project?.id);
+    _selectedProject = project;
+  }
 
   void reloadContextSyncSchedule() {
     if (_selectedProject == null) return;
@@ -834,18 +977,19 @@ class ProjectManagerState extends ChangeNotifier {
     final settings = await _settingsService.loadContextSyncSettings();
     if (!settings.isActive) return;
     _contextSyncInterval = Timer.periodic(settings.syncInterval, (_) {
-      unawaited(_runContextSync(reason: 'interval', force: false));
+      unawaited(_runContextSyncAll(reason: 'interval'));
     });
   }
 
   void _watchAiDirectory(String projectPath) {
+    if (!Directory(projectPath).existsSync()) return;
     final aiDir = Directory(ProjectContextPaths.contextDir(projectPath));
     if (!aiDir.existsSync()) {
       aiDir.createSync(recursive: true);
     }
     try {
       _aiWatchSub = aiDir.watch(recursive: true).listen((_) {
-        if (_suppressAiWatch) return;
+        if (_aiWatchSuppressCount > 0) return;
         if (_contextSyncService.isSyncing) return;
         _scheduleContextSync(
           reason: 'ai-watch',
@@ -867,12 +1011,166 @@ class ProjectManagerState extends ChangeNotifier {
     _contextSyncInterval = null;
   }
 
-  Future<void> _runContextSync({
+  /// Syncs every project from the snapshot taken when the queue starts.
+  /// A second call while this queue is running does not start another.
+  Future<void> _runContextSyncAll({required String reason}) {
+    if (_autoSyncPausedAfterError) {
+      AppLogService.instance.info(
+        'Auto-sync waiting — last sync failed, press sync to retry',
+        source: 'context-sync',
+        data: {'reason': reason},
+      );
+      return Future<void>.value();
+    }
+    if (_contextSyncQueueRunning) {
+      AppLogService.instance.info(
+        'Context sync queue skipped — already running',
+        source: 'context-sync',
+        data: {'reason': reason},
+      );
+      return _contextSyncQueue ?? Future<void>.value();
+    }
+    _contextSyncQueueRunning = true;
+    final snapshot = List<Project>.of(_projects);
+    _contextSyncQueue = _drainContextSyncQueue(
+      reason: reason,
+      projects: snapshot,
+    );
+    return _contextSyncQueue!;
+  }
+
+  Future<void> _drainContextSyncQueue({
+    required String reason,
+    required List<Project> projects,
+  }) async {
+    var networkFailures = 0;
+    _aiWatchSuppressCount++;
+    try {
+      final syncSettings = await _settingsService.loadContextSyncSettings();
+      if (!syncSettings.isActive) {
+        _contextSyncStatus = const ContextSyncStatus(
+          phase: ContextSyncPhase.idle,
+          message: 'Context sync is disabled',
+        );
+        notifyListeners();
+        return;
+      }
+
+      if (projects.isNotEmpty) {
+        for (final project in projects) {
+          while (true) {
+            final status = await _runContextSync(
+              reason: reason,
+              project: project,
+              holdWatchSuppress: false,
+            );
+            if (!_isNetworkSyncFailure(status)) break;
+            final delay = _networkRetryDelays[networkFailures.clamp(
+              0,
+              _networkRetryDelays.length - 1,
+            )];
+            networkFailures++;
+            await _waitNetwork(delay);
+            if (networkFailures >= _networkAttemptsPerPass) {
+              _pauseAutoSyncAfterError('network');
+              return;
+            }
+          }
+        }
+      }
+      if (_autoSyncPausedAfterError) return;
+      await _syncMachineSettings(syncSettings);
+    } finally {
+      await Future<void>.delayed(debugPostSyncSuppress);
+      if (_aiWatchSuppressCount > 0) _aiWatchSuppressCount--;
+      _contextSyncQueueRunning = false;
+    }
+  }
+
+  Future<void> _syncMachineSettings(ContextSyncSettings syncSettings) async {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    final result = await WorkstationSettingsSync(git: _contextSyncService.git)
+        .sync(repoUrl: syncSettings.repoUrl);
+    if (result.ok) return;
+    _pauseAutoSyncAfterError('settings');
+    _rememberSyncStatus(
+      ContextSyncStatus(
+        phase: ContextSyncPhase.error,
+        error: result.error ?? result.message,
+        message: 'Machine settings were not saved',
+      ),
+    );
+  }
+
+  void _armAppUpdateChecks() {
+    if (kDebugMode) return;
+    unawaited(_checkAppUpdate());
+    _appUpdateTimer ??= Timer.periodic(const Duration(hours: 1), (_) {
+      unawaited(_checkAppUpdate());
+    });
+  }
+
+  Future<void> _checkAppUpdate() async {
+    final syncSettings = await _settingsService.loadContextSyncSettings();
+    if (!syncSettings.isActive) return;
+    await AppReleaseUpdate(git: _contextSyncService.git).check(
+      repoUrl: syncSettings.repoUrl,
+      currentVersion: appVersion,
+    );
+  }
+
+  Future<void> _waitNetwork(Duration duration) {
+    final hook = debugNetworkDelay;
+    if (hook != null) return hook(duration);
+    return Future<void>.delayed(duration);
+  }
+
+  Future<ContextSyncStatus?> _runContextSync({
     String reason = 'auto',
     bool force = false,
+    Project? project,
+    bool holdWatchSuppress = true,
+  }) {
+    final scheduled = _syncTail.then(
+      (_) => _runContextSyncBody(
+        reason: reason,
+        force: force,
+        project: project,
+        holdWatchSuppress: holdWatchSuppress,
+      ),
+    );
+    _syncTail = scheduled.then((_) {}, onError: (Object _, StackTrace __) {});
+    return scheduled;
+  }
+
+  Future<ContextSyncStatus?> _runContextSyncBody({
+    required String reason,
+    required bool force,
+    required Project? project,
+    required bool holdWatchSuppress,
   }) async {
-    final project = _selectedProject;
-    if (project == null) return;
+    final target = project ?? _selectedProject;
+    if (target == null) return null;
+    if (reason == 'manual') {
+      _autoSyncPausedAfterError = false;
+    } else if (_autoSyncPausedAfterError &&
+        reason != 'startup' &&
+        reason != 'interval') {
+      AppLogService.instance.info(
+        'Auto-sync waiting — last sync failed, press sync to retry',
+        source: 'context-sync',
+        data: {'reason': reason, 'projectId': target.id},
+      );
+      return null;
+    }
+    if (!isProjectDirectoryPresent(target)) {
+      AppLogService.instance.info(
+        'Sync skipped — project folder was not found',
+        source: 'context-sync',
+        data: {'reason': reason, 'projectId': target.id, 'path': target.path},
+      );
+      return null;
+    }
 
     final syncSettings = await _settingsService.loadContextSyncSettings();
     if (!syncSettings.isActive) {
@@ -881,22 +1179,22 @@ class ProjectManagerState extends ChangeNotifier {
         message: 'Context sync is disabled',
       );
       notifyListeners();
-      return;
+      return _contextSyncStatus;
     }
 
     final contextId =
-        ContextIdUtils.normalize(project.contextId) ?? project.contextId;
+        ContextIdUtils.normalize(target.contextId) ?? target.contextId;
 
     // One auto Cursor sync per project when switching / watching .ai.
-    // Interval + manual Sync still allowed.
+    // startup, interval, and manual Sync are not limited by this.
     final switchAuto = reason == 'project-selected' || reason == 'ai-watch';
-    if (!force && switchAuto && _autoCursorSyncDone.contains(project.id)) {
+    if (!force && switchAuto && _autoCursorSyncDone.contains(target.id)) {
       AppLogService.instance.info(
         'Auto-sync skipped — project already had its Cursor sync',
         source: 'context-sync',
-        data: {'reason': reason, 'projectId': project.id},
+        data: {'reason': reason, 'projectId': target.id},
       );
-      return;
+      return null;
     }
 
     if (!force) {
@@ -913,7 +1211,7 @@ class ProjectManagerState extends ChangeNotifier {
             'lastAgoSec': DateTime.now().difference(last).inSeconds,
           },
         );
-        return;
+        return null;
       }
     }
 
@@ -923,13 +1221,13 @@ class ProjectManagerState extends ChangeNotifier {
         source: 'context-sync',
         data: {
           'reason': reason,
-          'projectId': project.id,
+          'projectId': target.id,
           'syncing': _contextSyncService.isSyncing,
           'cursorBusy': CursorCliFlight.instance.isBusy,
           'activeCursorJob': CursorCliFlight.instance.activeJob,
         },
       );
-      return;
+      return null;
     }
 
     if (!force && _semanticIndexPauseDepth > 0) {
@@ -938,30 +1236,38 @@ class ProjectManagerState extends ChangeNotifier {
         source: 'context-sync',
         data: {
           'reason': reason,
-          'projectId': project.id,
+          'projectId': target.id,
           'pauseDepth': _semanticIndexPauseDepth,
         },
       );
-      return;
+      return null;
     }
 
     final generation = _syncRunGeneration;
-    final projectId = project.id;
+    final abortGeneration = _syncAbortGeneration;
+    final projectId = target.id;
+    // startup and interval keep going if the user selects another project.
+    final selectionBound = reason != 'startup' && reason != 'interval';
     final cursorSettings = await _settingsService.loadCursorCliSettings();
 
-    _suppressAiWatch = true;
+    bool stillCurrent() {
+      if (selectionBound) {
+        return generation == _syncRunGeneration &&
+            _selectedProject?.id == projectId;
+      }
+      return abortGeneration == _syncAbortGeneration;
+    }
+
+    if (holdWatchSuppress) _aiWatchSuppressCount++;
     try {
       final status = await _contextSyncService.syncProject(
-        project: project,
+        project: target,
         syncSettings: syncSettings,
         cursorSettings: cursorSettings,
-        shouldContinue: () =>
-            generation == _syncRunGeneration &&
-            _selectedProject?.id == projectId,
+        shouldContinue: stillCurrent,
         onStatus: (s) {
-          if (generation != _syncRunGeneration) return;
-          _contextSyncStatus = s;
-          notifyListeners();
+          if (!stillCurrent()) return;
+          _rememberSyncStatus(s);
         },
       );
 
@@ -972,8 +1278,10 @@ class ProjectManagerState extends ChangeNotifier {
           source: 'context-sync',
           data: {'reason': reason, 'projectId': projectId},
         );
-        return;
+        return status;
       }
+
+      _noteSyncOutcome(status);
 
       if (status.lastSyncedAt != null && !status.hasError) {
         _lastSuccessfulSyncAt[contextId] = status.lastSyncedAt!;
@@ -983,28 +1291,74 @@ class ProjectManagerState extends ChangeNotifier {
         }
       }
 
-      if (generation != _syncRunGeneration ||
-          _selectedProject?.id != projectId) {
+      _rememberSyncStatus(status);
+      if (!stillCurrent()) {
         AppLogService.instance.warn(
           'Sync UI update discarded (project changed)',
           source: 'context-sync',
           data: {'reason': reason, 'finishedProjectId': projectId},
         );
-        return;
+        return status;
       }
 
-      _contextSyncStatus = status;
-      notifyListeners();
+      return status;
     } finally {
-      await Future<void>.delayed(_postSyncSuppress);
-      _suppressAiWatch = false;
-      // No queued follow-up sync — one project = one Cursor request.
+      if (holdWatchSuppress) {
+        await Future<void>.delayed(debugPostSyncSuppress);
+        if (_aiWatchSuppressCount > 0) _aiWatchSuppressCount--;
+      }
     }
+  }
+
+  void _pauseAutoSyncAfterError(String reason) {
+    if (_autoSyncPausedAfterError) return;
+    _autoSyncPausedAfterError = true;
+    AppLogService.instance.info(
+      'Auto-sync paused until a manual sync',
+      source: 'context-sync',
+      data: {'reason': reason},
+    );
+  }
+
+  void _noteSyncOutcome(ContextSyncStatus status) {
+    if (!status.hasError) return;
+    if (_isNetworkSyncFailure(status)) return;
+    final error = status.error ?? '';
+    if (error.contains('Project folder was not found')) return;
+    _pauseAutoSyncAfterError(error);
   }
 
   @override
   void dispose() {
+    _appUpdateTimer?.cancel();
     _stopContextSyncWatchers();
     super.dispose();
   }
+}
+
+bool _isNetworkSyncFailure(ContextSyncStatus? status) {
+  if (status == null || !status.hasError) return false;
+  final text = (status.error ?? '').toLowerCase();
+  if (text.isEmpty) return false;
+  const needles = <String>[
+    'could not resolve host',
+    'could not resolve hostname',
+    'temporary failure in name resolution',
+    'failed to connect',
+    'connection timed out',
+    'operation timed out',
+    'timed out',
+    'network is unreachable',
+    'no route to host',
+    'could not read from remote repository',
+    'the remote end hung up unexpectedly',
+    'connection reset',
+    'connection refused',
+    'recv failure',
+    'remote is not reachable',
+    'early eof',
+    'ssl_error_syscall',
+    "couldn't connect to server",
+  ];
+  return needles.any(text.contains);
 }

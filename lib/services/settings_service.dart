@@ -6,6 +6,7 @@ import 'package:project_manager/l10n/app_localizations.dart';
 import 'package:project_manager/models/context_sync_settings.dart';
 import 'package:project_manager/models/cursor_cli_settings.dart';
 import 'package:project_manager/models/gitlab_settings.dart';
+import 'package:project_manager/models/windows_launch_settings.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsService {
@@ -13,6 +14,7 @@ class SettingsService {
   static const _cursorCliSettingsKey = 'settings_cursor_cli';
   static const _gitlabSettingsKey = 'settings_gitlab';
   static const _contextSyncSettingsKey = 'settings_context_sync';
+  static const _windowsLaunchSettingsKey = 'settings_windows_launch';
   static const _leftPanelWidthKey = 'layout_left_panel_width';
   static const _rightPanelWidthKey = 'layout_right_panel_width';
   static const _docSidebarWidthKey = 'layout_doc_sidebar_width';
@@ -146,6 +148,30 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _contextSyncSettingsKey,
+      jsonEncode(settings.toJson()),
+    );
+  }
+
+  Future<WindowsLaunchSettings> loadWindowsLaunchSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_windowsLaunchSettingsKey);
+    if (raw == null || raw.isEmpty) {
+      return const WindowsLaunchSettings();
+    }
+
+    try {
+      return WindowsLaunchSettings.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      return const WindowsLaunchSettings();
+    }
+  }
+
+  Future<void> saveWindowsLaunchSettings(WindowsLaunchSettings settings) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _windowsLaunchSettingsKey,
       jsonEncode(settings.toJson()),
     );
   }
