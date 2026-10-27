@@ -268,6 +268,6 @@
     "applied_rules": [
       "ai-storage-no-task-id"
     ],
-    "notes": "Продолжать с PLAN.md на ветке main. legacy = 0cf66e1, туда не коммитить. Git context sync не перестраивать."
+    "notes": "Продолжать с PLAN.md на ветке main. legacy = 0cf66e1. Настройки машины — папка settings/ в корне sync-репозитория, не UUID. Проектные UUID не переименовывать."
   }
 ]

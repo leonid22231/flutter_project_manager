@@ -3,15 +3,16 @@
   "title": "Анализ project_manager как синхронизации рабочего места",
   "status": "plan-on-main",
   "created_at": "2026-10-27T03:30:00Z",
-  "updated_at": "2026-10-27T03:50:00Z",
+  "updated_at": "2026-10-27T03:55:00Z",
   "tags": ["sync", "workstation", "design", "cursor"],
   "owner": "l.soldatov",
-  "summary": "Старое приложение зафиксировано на ветке legacy (0cf66e1). На main лежит PLAN.md: автосинхронизация всех проектов, автозапуск Windows, папка workstation UUID, затем сужение окна. Git-контракт context sync не менять.",
+  "summary": "Старое приложение на ветке legacy (0cf66e1). На main план: автосинхронизация, автозапуск, папка settings/ рядом с UUID проектов, затем сужение окна. Git-контракт проектных папок не менять.",
   "steps": [
     "Разобран project_manager и workstation pack",
     "Сверен клон context_sync_repo",
     "Создана ветка legacy на 0cf66e1",
-    "На main добавлен PLAN.md и правило continue-work"
+    "На main добавлен PLAN.md и правило continue-work",
+    "Папка настроек в плане переименована в settings/, без UUID"
   ],
   "attachments": [
     "result.md"
